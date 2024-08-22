@@ -56,7 +56,7 @@ class LeagueEndpoint:
         """
         endpoint = f"league/{league.league_id}/transactions"
         if week is not None:
-            endpoint += f"/{week}"
+            endpoint += f"/{week}" # I'm not sure if we're able to exclude weeks...
         return self.client.get(endpoint)
 
     def get_traded_picks(self, league: LeagueModel) -> List[Dict]:
