@@ -1,7 +1,9 @@
 from typing import Dict, List, Optional
 from datetime import datetime
 from ..models.league import LeagueModel
+from ..models.user import UserModel
 from ..exceptions import SleeperAPIError
+from .user_endpoint import UserEndpoint
 
 class LeagueEndpoint:
     def __init__(self, client):
@@ -22,12 +24,22 @@ class LeagueEndpoint:
         endpoint = f"league/{league.league_id}/rosters"
         return self.client.get(endpoint)
 
-    def get_users(self, league: LeagueModel) -> List[Dict]:
+    def get_users(self, league: LeagueModel, convert_results = True) -> List[Dict]:
         """
         Retrieve the users in a given league.
+        Returns a list of users. 
+            - If convert_results = False, this will be the raw JSON.
+            - If convert_results = True, then this will be a list of user model objects
         """
         endpoint = f"league/{league.league_id}/users"
-        return self.client.get(endpoint)
+        user_data_json_list = self.client.get(endpoint)
+        
+        if convert_results == False:
+            # note: the username will be missing from these user records, this can be retrieved if needed
+            return [UserModel.from_json(user_data)for user_data in user_data_json_list]
+        else: 
+            return user_data_json_list
+            
 
     def get_matchups(self, league: LeagueModel, week: int) -> List[Dict]:
         """
@@ -56,7 +68,7 @@ class LeagueEndpoint:
         """
         endpoint = f"league/{league.league_id}/transactions"
         if week is not None:
-            endpoint += f"/{week}"
+            endpoint += f"/{week}" # I'm not sure if we're able to exclude weeks...
         return self.client.get(endpoint)
 
     def get_traded_picks(self, league: LeagueModel) -> List[Dict]:
