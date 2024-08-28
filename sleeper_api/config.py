@@ -2,3 +2,7 @@
 # Optionally, may include environment variable management here.
 
 BASE_URL = "https://api.sleeper.app/v1/"
+
+
+from datetime import datetime, timedelta
+CACHE_DURATION = timedelta(days=1)
