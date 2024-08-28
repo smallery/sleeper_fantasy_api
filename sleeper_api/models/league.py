@@ -51,6 +51,15 @@ class LeagueModel:
         self.last_transaction_id = last_transaction_id
         self.previous_league_id = previous_league_id
 
+        ## -- still deciding if I want to allow this object to store this data
+        self.rosters: Optional[List[Dict]] = None
+        self.users: Optional[List[Dict]] = None
+        self.matchups: Optional[Dict[int, List[Dict]]] = {}
+        self.winners_bracket: Optional[List[Dict]] = None
+        self.losers_bracket: Optional[List[Dict]] = None
+        self.transactions: Optional[Dict[int, List[Dict]]] = {}
+        self.traded_picks: Optional[List[Dict]] = None
+
     @classmethod
     def from_json(cls, data: Dict):
         return cls(
@@ -82,4 +91,3 @@ class LeagueModel:
     def __repr__(self):
         return f"<LeagueModel(name={self.name}, season={self.season}, league_id={self.league_id})>"
 
-    
