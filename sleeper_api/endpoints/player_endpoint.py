@@ -3,11 +3,11 @@ import gzip
 import json
 from pathlib import Path
 from platformdirs import user_cache_dir
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+from datetime import datetime
+from typing import List, Dict, Optional, Any
 from ..models.player import PlayerModel
 from ..exceptions import SleeperAPIError
-from ..config import CACHE_DURATION
+from ..config import CACHE_DURATION, CONVERT_RESULTS
 
 class PlayerEndpoint:
 
@@ -52,7 +52,7 @@ class PlayerEndpoint:
         except IOError as e:
             print(f"Warning: Could not save cache file: {e}")
 
-    def get_all_players(self, sport = 'nfl', convert_results = True) -> List[PlayerModel]:
+    def get_all_players(self, sport = 'nfl', convert_results = CONVERT_RESULTS) -> List[PlayerModel]:
         """
         Retrieve all players, either from the cache or by making an API call.
         """
@@ -71,7 +71,7 @@ class PlayerEndpoint:
 
 
     def get_trending_players(self, sport: str, trend_type: str, lookback_hours: Optional[int] = 24
-                             , limit: Optional[int] = 25, convert_results = True) -> List[Dict[str, int]]:
+                             , limit: Optional[int] = 25, convert_results = CONVERT_RESULTS) -> List[Dict[str, int]]:
             """
             Retrieve trending players based on adds or drops.
 
@@ -109,12 +109,94 @@ class PlayerEndpoint:
 
     def get_player(self,player_id):
         # returns a specific playerModel for the player ID
-        pass
 
-    def search_players(self,query):
-        # query will be attributes and values and this will return a list of players or player models that match
-        pass
+        for player in self.get_all_players():
+            if player.player_id == player_id:
+                return player
+        
+        #raise SleeperAPIError("Player Not Found")
+        return None
 
-    def get_players_by_team(self,team_abbr):
+    def search_players(self, search_keys: Dict[str, Any], convert_results=CONVERT_RESULTS):
+        # Helper function to evaluate individual criteria
+        def safe_search_type(record, key, value):
+            record_value = record.get(key)
+
+            if record_value is None:
+                return False  # Skip records where the value is None
+    
+            if isinstance(value, dict):
+                for operator, val in value.items():
+                    if operator == "==":
+                        if record_value != val:
+                            return False
+                    elif operator == "!=":
+                        if record_value == val:
+                            return False
+                    elif operator == ">":
+                        if not (record_value > val):
+                            return False
+                    elif operator == "<":
+                        if not (record_value < val):
+                            return False
+                    elif operator == ">=":
+                        if not (record_value >= val):
+                            return False
+                    elif operator == "<=":
+                        if not (record_value <= val):
+                            return False
+                    elif operator == "in":
+                        if record_value not in val:
+                            return False
+                    elif operator == "not in":
+                        if record_value in val:
+                            return False
+                    else:
+                        raise ValueError(f"Unsupported operator: {operator}")
+                return True
+            else:
+                return record_value == value
+
+        # Recursive function to handle AND/OR logic
+        def evaluate_conditions(record, conditions):
+            if isinstance(conditions, dict):
+                if "AND" in conditions:
+                    return all(evaluate_conditions(record, cond) for cond in conditions["AND"])
+                elif "OR" in conditions:
+                    return any(evaluate_conditions(record, cond) for cond in conditions["OR"])
+                else:
+                    return all(safe_search_type(record, k, v) for k, v in conditions.items())
+            else:
+                raise ValueError("Unsupported conditions format: {}".format(conditions))
+
+        # Load all player data
+        all_players_json = self.get_all_players(convert_results=False)
+        player_data_list = []
+
+        # removes the key from the all_players json so it's just a list of player json data
+        # this makes it easier to search and transform into a PlayerModel
+        for key, value in all_players_json.items():
+            value['key'] = key
+            player_data_list.append(value)
+
+        # Filter players based on the complex search keys
+        filtered_player_json = [
+            record for record in player_data_list
+            if evaluate_conditions(record, search_keys)
+        ]
+
+        # Return the results in the desired format
+        if not convert_results:
+            return filtered_player_json
+
+        return [PlayerModel.from_dict(data) for data in filtered_player_json]
+
+    def get_players_by_team(self,team_abbr) -> List[PlayerModel]:
         # use the query to return a list of player models where the team_abbr matches the player team_abbr
-        pass
+        team_players = []
+        for player in self.get_all_players():
+            if player.team_abbr == team_abbr:
+                team_players.append(player)
+        
+        #raise SleeperAPIError("Player Not Found")
+        return team_players
