@@ -8,6 +8,7 @@ class PlayerModel:
         last_name: Optional[str] = None,
         position: Optional[str] = None,
         team_abbr: Optional[str] = None,
+        team: Optional[str] = None,
         status: Optional[str] = None,
         sport: Optional[str] = None,
         age: Optional[int] = None,
@@ -19,7 +20,9 @@ class PlayerModel:
         self.first_name = first_name
         self.last_name = last_name
         self.position = position
-        self.team_abbr = team_abbr
+        # note sometimes the team_abbr is None but team is filled in with the correct abbreviation
+        # this is my best way of fixing this now but should probably add some conditional logic to validate this
+        self.team_abbr = team_abbr or team
         self.status = status
         self.sport = sport
         self.age = age
@@ -42,6 +45,7 @@ class PlayerModel:
             first_name=attributes.get('first_name'),
             last_name=attributes.get('last_name'),
             team_abbr=attributes.get('team_abbr'),
+            team=attributes.get('team'),
             position=attributes.get('position'),
             sport=attributes.get('sport'),
             status=attributes.get('status'),
@@ -52,7 +56,7 @@ class PlayerModel:
         )
 
     def __repr__(self):
-        return f"<PlayerModel(name={self.first_name} {self.last_name}, player_id={self.player_id}, team={self.team_abbr}, position={self.position})>"
+        return f"<PlayerModel(name={self.first_name} {self.last_name}, player_id={self.player_id}, age={self.age}, team={self.team_abbr}, position={self.position})>"
     
     def get_attribute(self, attr_name: str) -> Optional[Any]:
         """

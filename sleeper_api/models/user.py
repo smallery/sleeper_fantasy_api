@@ -38,7 +38,7 @@ class UserModel:
         )
 
     def __repr__(self):
-        return f"<UserModel(username={self.username}, user_id={self.user_id}, display_name={self.display_name}, nfl_leagues={len(self.nfl_leagues)})>"
+        return f"<UserModel(username={self.username}, user_id={self.user_id}, display_name={self.display_name})>"
 
     def set_nfl_leagues(self, leagues: List[LeagueModel]):
         """Set the NFL leagues for the user."""
