@@ -1,10 +1,10 @@
-from typing import Dict, List, Optional
-from datetime import datetime
-from ..models.league import LeagueModel, RosterModel, MatchupModel
+from typing import Dict, List
+from ..models.league import LeagueModel
+from ..models.roster import RosterModel
+from ..models.matchups import MatchupModel
 from ..models.brackets import BracketModel
 from ..models.transactions import TransactionsModel
 from ..models.traded_picks import TradedPicksModel
-from ..exceptions import SleeperAPIError
 from .user_endpoint import UserEndpoint
 from ..config import CONVERT_RESULTS
 
