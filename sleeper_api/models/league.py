@@ -1,4 +1,55 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
+
+class RosterModel:
+    def __init__(
+        self,
+        starters: List[str],
+        settings: Dict[str, Any],
+        roster_id: int,
+        reserve: List[str],
+        players: List[str],
+        owner_id: str,
+        league_id: str
+    ):
+        self.starters = starters
+        self.settings = settings
+        self.roster_id = roster_id
+        self.reserve = reserve
+        self.players = players
+        self.owner_id = owner_id
+        self.league_id = league_id
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'RosterModel':
+        """
+        Create a RosterModel instance from a dictionary.
+        """
+        return cls(
+            starters=data['starters'],
+            settings=data['settings'],
+            roster_id=data['roster_id'],
+            reserve=data['reserve'],
+            players=data['players'],
+            owner_id=data['owner_id'],
+            league_id=data['league_id']
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the RosterModel instance to a dictionary.
+        """
+        return {
+            'starters': self.starters,
+            'settings': self.settings,
+            'roster_id': self.roster_id,
+            'reserve': self.reserve,
+            'players': self.players,
+            'owner_id': self.owner_id,
+            'league_id': self.league_id
+        }
+
+    def __repr__(self):
+        return (f"<RosterModel(roster_id={self.roster_id}, owner_id={self.owner_id}, league_id={self.league_id})>")
 
 class LeagueModel:
     def __init__(
@@ -91,3 +142,50 @@ class LeagueModel:
     def __repr__(self):
         return f"<LeagueModel(name={self.name}, season={self.season}, league_id={self.league_id})>"
 
+class MatchupModel:
+    def __init__(
+        self,
+        starters: List[str],
+        roster_id: int,
+        players: List[str],
+        matchup_id: int,
+        points: float,
+        custom_points: Optional[float] = None
+    ):
+        self.starters = starters
+        self.roster_id = roster_id
+        self.players = players
+        self.matchup_id = matchup_id
+        self.points = points
+        self.custom_points = custom_points
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MatchupModel':
+        """
+        Create a MatchupModel instance from a dictionary.
+        """
+        return cls(
+            starters=data['starters'],
+            roster_id=data['roster_id'],
+            players=data['players'],
+            matchup_id=data['matchup_id'],
+            points=data['points'],
+            custom_points=data.get('custom_points')
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the MatchupModel instance to a dictionary.
+        """
+        return {
+            'starters': self.starters,
+            'roster_id': self.roster_id,
+            'players': self.players,
+            'matchup_id': self.matchup_id,
+            'points': self.points,
+            'custom_points': self.custom_points
+        }
+
+    def __repr__(self):
+        return (f"<MatchupModel(matchup_id={self.matchup_id}, roster_id={self.roster_id}, "
+                f"points={self.points}, custom_points={self.custom_points})>")
