@@ -3,6 +3,7 @@ from datetime import datetime
 from ..models.user import UserModel
 from ..models.league import LeagueModel
 from ..exceptions import SleeperAPIError
+from ..config import CONVERT_RESULTS
 
 class UserEndpoint:
     def __init__(self, client):
