@@ -1,5 +1,5 @@
 import pytest
-from sleeper_fantasy_api.sleeper_api.endpoints.user_endpoint import User
+from sleeper_fantasy_api.sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_fantasy_api.sleeper_api.models.user import UserModel
 from sleeper_api.exceptions import SleeperAPIError
 
@@ -22,7 +22,7 @@ def mock_client():
 
 @pytest.fixture
 def user_resource(mock_client):
-    return User(mock_client)
+    return UserEndpoint(mock_client)
 
 def test_get_user_by_user_id(user_resource):
     user = user_resource.get_user(user_id="12345")
