@@ -3,5 +3,9 @@ include LICENSE
 include requirements.txt
 include setup.py
 
-# Include everything in the tests/ directory
+# Include all files in the tests/ directory, excluding __pycache__
 recursive-include tests *
+recursive-exclude tests __pycache__
+
+# Exclude all __pycache__ directories from the entire package
+global-exclude __pycache__

@@ -11,7 +11,7 @@ setup(
     maintainer="Samuel Mallery",
     maintainer_email="mallerysam@gmail.com",
     url="https://github.com/smallery/sleeper_fantasy_api",
-    requires=[
+    install_requires=[
         # List dependencies here:
         "platformdirs==3.8.1",
         "requests==2.31.0"
