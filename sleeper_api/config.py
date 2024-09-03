@@ -8,6 +8,9 @@ BASE_URL = "https://api.sleeper.app/v1/"
 # False = return raw json results with no object oriented conversion
 CONVERT_RESULTS = True
 
+from datetime import datetime
+DEFAULT_SEASON = datetime.now().year
+
 
 from datetime import datetime, timedelta
 CACHE_DURATION = timedelta(days=1)

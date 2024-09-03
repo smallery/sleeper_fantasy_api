@@ -2,8 +2,9 @@ from typing import List, Optional
 from datetime import datetime
 from ..models.user import UserModel
 from ..models.league import LeagueModel
+from ..models.draft import DraftModel
 from ..exceptions import SleeperAPIError
-from ..config import CONVERT_RESULTS
+from ..config import CONVERT_RESULTS, DEFAULT_SEASON
 
 class UserEndpoint:
     def __init__(self, client):
@@ -35,21 +36,21 @@ class UserEndpoint:
         :return: a list of all of the leagues for a given year
         :raises: SleeperAPIError if no leagues are found
         """
-        current_year = datetime.now().year
+        current_season = DEFAULT_SEASON
         sport = 'nfl'
         leagues_data = []
 
         if not all_seasons:
-            season = season or current_year
-            if season < 2015 or season > current_year:
-                raise SleeperAPIError(f"Sleeper API only has data from the 2015 season through the {current_year} season.")
+            season = season or current_season
+            if season < 2015 or season > current_season:
+                raise SleeperAPIError(f"Sleeper API only has data from the 2015 season through the {current_season} season.")
             
             endpoint = f"user/{user.user_id}/leagues/{sport}/{season}"
             leagues_data = self.client.get(endpoint)
             if not leagues_data:
                 raise SleeperAPIError(f"No League data found for the {season} season.")
         else:
-            for season in range(2015, current_year + 1):
+            for season in range(2015, current_season + 1):
                 endpoint = f"user/{user.user_id}/leagues/{sport}/{season}"
                 league_season = self.client.get(endpoint)
                 leagues_data.extend(league_season)
@@ -57,3 +58,23 @@ class UserEndpoint:
         nfl_leagues = [LeagueModel.from_json(league) for league in leagues_data]
 
         user.nfl_leagues = nfl_leagues
+
+    def get_all_drafts(self, sport:str = 'nfl', season = DEFAULT_SEASON, convert_results = CONVERT_RESULTS) -> List[DraftModel]:
+        """
+        Retrieve all of the for a user for a given season, default is the current season
+
+        :param sport: the name of the sport, currently only nfl is supported.
+        :param season: the season to retrieve all leagues from, default is current year
+        :return: a list of all of the draft models for the given season
+        :raises: SleeperAPIError if no drafts are found
+        """
+        endpoint = f"user/{self.user_id}/drafts/{sport}/{season}"
+        draft_data = self.client.get(endpoint)
+
+        if not draft_data:
+                raise SleeperAPIError(f"No League data found for the {season} season.")
+        if not convert_results:
+            return draft_data
+        
+        return [DraftModel.from_json(data) for data in draft_data]
+    

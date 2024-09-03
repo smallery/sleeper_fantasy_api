@@ -4,7 +4,7 @@ from .league import LeagueModel
 from .matchups import MatchupModel
 from .player import PlayerModel
 from .roster import RosterModel
-from .traded_picks import TradedPicksModel
+from .traded_picks import TradedDraftPicksModel
 from .transactions import TransactionsModel
 from .user import UserModel
 
@@ -15,7 +15,7 @@ __all__ = [
     "MatchupModel",
     "PlayerModel",
     "RosterModel",
-    "TradedPicksModel",
+    "TradedDraftPicksModel",
     "TransactionsModel",
     "UserModel"
 ]
