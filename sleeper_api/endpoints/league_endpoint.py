@@ -4,7 +4,7 @@ from ..models.roster import RosterModel
 from ..models.matchups import MatchupModel
 from ..models.brackets import BracketModel
 from ..models.transactions import TransactionsModel
-from ..models.traded_picks import TradedPicksModel
+from ..models.traded_picks import TradedDraftPicksModel
 from .user_endpoint import UserEndpoint
 from ..config import CONVERT_RESULTS
 
@@ -109,4 +109,4 @@ class LeagueEndpoint:
         if not convert_results:
             return traded_picks_json
         
-        return [TradedPicksModel.from_dict(traded_pick_data) for traded_pick_data in traded_picks_json]
+        return [TradedDraftPicksModel.from_dict(traded_pick_data) for traded_pick_data in traded_picks_json]

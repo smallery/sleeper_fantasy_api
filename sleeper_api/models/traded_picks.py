@@ -32,12 +32,12 @@ class TradedPick:
                 f"previous_owner_id={self.previous_owner_id}, owner_id={self.owner_id})>")
 
 
-class TradedPicksModel:
+class TradedDraftPicksModel:
     def __init__(self, traded_picks: List[TradedPick]):
         self.traded_picks = traded_picks
 
     @classmethod
-    def from_list(cls, data: List[Dict[str, Union[str, int]]]) -> 'TradedPicksModel':
+    def from_list(cls, data: List[Dict[str, Union[str, int]]]) -> 'TradedDraftPicksModel':
         traded_picks = [TradedPick.from_dict(pick) for pick in data]
         return cls(traded_picks=traded_picks)
 
@@ -45,4 +45,4 @@ class TradedPicksModel:
         return [pick.to_dict() for pick in self.traded_picks]
 
     def __repr__(self):
-        return f"<TradedPicksModel(traded_picks={len(self.traded_picks)} picks)>"
+        return f"<TradedDraftPicksModel(traded_picks={len(self.traded_picks)} picks)>"
