@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include requirements.txt
+include setup.py
+
+# Include everything in the tests/ directory
+recursive-include tests *
