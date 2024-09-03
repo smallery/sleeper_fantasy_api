@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sleeper_fantasy_api"
+version = "0.1.0"
+description = "A Python wrapper for the Sleeper Fantasy API"
+readme = "README.md"
+readme-content-type = "text/markdown"
+authors = [
+    {name = "Samuel Mallery", email = "mallerysam@gmail.com"}
+]
+maintainers = [
+    {name = "Samuel Mallery", email = "mallerysam@gmail.com"}
+]
+license = {text = "MIT"}
+keywords = ["sleeper", "fantasy football", "football", "nfl", "sleeper api", "fantasy"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "platformdirs==3.8.1",
+    "requests==2.31.0",
+    "pytest==8.2.2",
+]
+include = ["LICENSE.md"]
+dynamic = ["urls"]
+
+[project.urls]
+"Homepage" = "https://github.com/smallery/sleeper_fantasy_api"
+
+[tool.setuptools]
+include-package-data = true
+zip-safe = false
