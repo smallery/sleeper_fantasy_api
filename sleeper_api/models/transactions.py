@@ -74,6 +74,21 @@ class TransactionsModel:
         drops: Optional[Dict[str, int]] = None,
         adds: Optional[Dict[str, int]] = None,
     ):
+        
+        # Add type validation checks here
+        if not isinstance(transaction_type, str):
+            raise ValueError(f"Invalid type for 'transaction_type': expected str, got {type(transaction_type).__name__}")
+        if not isinstance(transaction_id, str):
+            raise ValueError(f"Invalid type for 'transaction_id': expected str, got {type(transaction_id).__name__}")
+        if not isinstance(status_updated, int):
+            raise ValueError(f"Invalid type for 'status_updated': expected int, got {type(status_updated).__name__}")
+        if not isinstance(status, str):
+            raise ValueError(f"Invalid type for 'status': expected str, got {type(status).__name__}")
+        if not isinstance(roster_ids, list) or not all(isinstance(rid, int) for rid in roster_ids):
+            raise ValueError(f"Invalid type for 'roster_ids': expected List[int], got {type(roster_ids).__name__}")
+        if not isinstance(leg, int):
+            raise ValueError(f"Invalid type for 'leg': expected int, got {type(leg).__name__}")
+
         self.transaction_type = transaction_type
         self.transaction_id = transaction_id
         self.status_updated = status_updated
