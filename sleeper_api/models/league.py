@@ -27,6 +27,11 @@ class LeagueModel:
         last_transaction_id: Optional[str] = None,
         previous_league_id: Optional[str] = None,
     ):
+        
+        # Raise a TypeError if any required fields are missing
+        if not all([league_id, name, status, sport, season, season_type, total_rosters]):
+            raise TypeError("Missing required fields in LeagueModel initialization")
+
         self.league_id = league_id
         self.name = name
         self.status = status
