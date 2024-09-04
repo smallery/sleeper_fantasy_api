@@ -1,6 +1,7 @@
 ## TO DO Fix this so picks model is simpler
 
 from typing import List, Dict, Optional, Union
+from ..exceptions import SleeperAPIError
 
 class PickMetadata:
     def __init__(
@@ -73,6 +74,25 @@ class PicksModel:
         is_keeper: Optional[bool],
         draft_id: str
     ):
+        
+        # Type validation for important fields
+        if not isinstance(player_id, str):
+            raise SleeperAPIError(f"Invalid type for player_id: expected str, got {type(player_id).__name__}")
+        if not isinstance(picked_by, str):
+            raise SleeperAPIError(f"Invalid type for picked_by: expected str, got {type(picked_by).__name__}")
+        if not isinstance(roster_id, str):
+            raise SleeperAPIError(f"Invalid type for roster_id: expected str, got {type(roster_id).__name__}")
+        if not isinstance(round, int):
+            raise SleeperAPIError(f"Invalid type for round: expected int, got {type(round).__name__}")
+        if not isinstance(draft_slot, int):
+            raise SleeperAPIError(f"Invalid type for draft_slot: expected int, got {type(draft_slot).__name__}")
+        if not isinstance(pick_no, int):
+            raise SleeperAPIError(f"Invalid type for pick_no: expected int, got {type(pick_no).__name__}")
+        if metadata is not None and not isinstance(metadata, PickMetadata):
+            raise SleeperAPIError(f"Invalid type for metadata: expected PickMetadata, got {type(metadata).__name__}")
+        if not isinstance(draft_id, str):
+            raise SleeperAPIError(f"Invalid type for draft_id: expected str, got {type(draft_id).__name__}")
+
         self.player_id = player_id
         self.picked_by = picked_by
         self.roster_id = roster_id
@@ -115,7 +135,13 @@ class PicksModel:
             'is_keeper': self.is_keeper,
             'draft_id': self.draft_id
         }
-
+    @classmethod
+    def from_list(cls, data_list: List[Dict]) -> List['PicksModel']:
+        """
+        Create a list of PicksModel instances from a list of dictionaries.
+        """
+        return [cls.from_dict(data) for data in data_list]
+    
     def __repr__(self):
         return (f"<Pick(player_id={self.player_id}, player_name={self.player_name}, "
                 f"round={self.round}, picked_by={self.picked_by}, "
