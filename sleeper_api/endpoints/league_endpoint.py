@@ -7,6 +7,7 @@ from ..models.transactions import TransactionsModel
 from ..models.traded_picks import TradedDraftPicksModel
 from .user_endpoint import UserEndpoint
 from ..config import CONVERT_RESULTS
+from sleeper_api.exceptions import SleeperAPIError
 
 class LeagueEndpoint:
     def __init__(self, client):
@@ -18,6 +19,8 @@ class LeagueEndpoint:
         """
         endpoint = f"league/{league_id}"
         league_data = self.client.get(endpoint)
+        if league_data is None:
+            raise SleeperAPIError("League not found")
         return LeagueModel.from_json(league_data)
 
     def get_rosters(self, league_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:

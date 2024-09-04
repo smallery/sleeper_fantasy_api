@@ -70,42 +70,43 @@ class PlayerEndpoint:
         return players
 
 
-    def get_trending_players(self, sport: str, trend_type: str, lookback_hours: Optional[int] = 24
-                             , limit: Optional[int] = 25, convert_results = CONVERT_RESULTS) -> List[Dict[str, int]]:
-            """
-            Retrieve trending players based on adds or drops.
+    def get_trending_players(self, sport: str, trend_type: str, lookback_hours: Optional[int] = 24,
+                            limit: Optional[int] = 25, convert_results=CONVERT_RESULTS) -> List[Dict[str, int]]:
+        """
+        Retrieve trending players based on adds or drops.
 
-            :param sport: The sport, such as 'nfl'.
-            :param trend_type: Either 'add' or 'drop'.
-            :param lookback_hours: Number of hours to look back (default is 24).
-            :param limit: Number of results you want (default is 25).
-            :return: A list of dictionaries containing 'player_id' and 'count'.
-            """
-            if trend_type not in ('add','drop'):
-                raise SleeperAPIError("Trend type must either be add or drop.")
-            
-            endpoint = f"players/{sport}/trending/{trend_type}?lookback_hours={lookback_hours}&limit={limit}"
-            trending_data = self.client.get(endpoint)
+        :param sport: The sport, such as 'nfl'.
+        :param trend_type: Either 'add' or 'drop'.
+        :param lookback_hours: Number of hours to look back (default is 24).
+        :param limit: Number of results you want (default is 25).
+        :return: A list of PlayerModel instances if convert_results is True, or the raw data if False.
+        """
+        if trend_type not in ('add', 'drop'):
+            raise SleeperAPIError("Trend type must either be add or drop.")
         
-            if not convert_results:
-                return trending_data
-            
-            #  If convert_results is True, map the trending data to PlayerModel instances
-            all_players = self.get_all_players(convert_results)
-            player_dict = {player.player_id: player for player in all_players}
+        endpoint = f"players/{sport}/trending/{trend_type}?lookback_hours={lookback_hours}&limit={limit}"
+        trending_data = self.client.get(endpoint)
 
-            result = []
-            for entry in trending_data:
-                player_id = entry['player_id']
-                if player_id in player_dict:
-                    player = player_dict[player_id]
-                    if trend_type == 'add':
-                        player.add_count = entry['count']
-                    elif trend_type == 'drop':
-                        player.drop_count = entry['count']
-                    result.append(player)
-            
-            return result
+        if not convert_results:
+            return trending_data
+        
+        # If convert_results is True, map the trending data to PlayerModel instances
+        all_players = self.get_all_players(convert_results)
+        player_dict = {player.player_id: player for player in all_players}
+
+        result = []
+        for entry in trending_data:
+            player_id = entry['player_id']
+            if player_id in player_dict:
+                player = player_dict[player_id]
+                if trend_type == 'add':
+                    player.add_count = entry['count']
+                elif trend_type == 'drop':
+                    player.drop_count = entry['count']
+                result.append(player)
+        
+        return result
+
 
     def get_player(self,player_id):
         # returns a specific playerModel for the player ID

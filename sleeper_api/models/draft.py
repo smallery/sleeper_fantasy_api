@@ -14,11 +14,18 @@ class DraftModel:
         self.league_id = league_id
         self.season = season
         self.status = status
-        self.draft_order = draft_order
+        self.draft_order = draft_order or {}
         self.picks = picks or []
 
     @classmethod
     def from_json(cls, data: Dict):
+        
+        # Check if required fields are present
+        required_fields = ['draft_id', 'league_id', 'season', 'status', 'draft_order']
+        for field in required_fields:
+            if field not in data or data[field] is None:
+                raise TypeError(f"Missing required field: {field}")
+
         return cls(
             draft_id=data.get('draft_id'),
             league_id=data.get('league_id'),

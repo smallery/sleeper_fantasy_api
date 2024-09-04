@@ -10,6 +10,22 @@ class MatchupModel:
         points: float,
         custom_points: Optional[float] = None
     ):
+        
+        # Validate types
+        if not isinstance(starters, list) or not all(isinstance(s, str) for s in starters):
+            raise TypeError(f"Invalid type for starters: expected List[str], got {type(starters).__name__}")
+        if not isinstance(roster_id, int):
+            raise TypeError(f"Invalid type for roster_id: expected int, got {type(roster_id).__name__}")
+        if not isinstance(players, list) or not all(isinstance(p, str) for p in players):
+            raise TypeError(f"Invalid type for players: expected List[str], got {type(players).__name__}")
+        if not isinstance(matchup_id, int):
+            raise TypeError(f"Invalid type for matchup_id: expected int, got {type(matchup_id).__name__}")
+        if not isinstance(points, (float, int)):  # Allow both float and int, but convert to float
+            raise TypeError(f"Invalid type for points: expected float, got {type(points).__name__}")
+        if custom_points is not None and not isinstance(custom_points, (float, int)):  # Allow None or float/int
+            raise TypeError(f"Invalid type for custom_points: expected Optional[float], got {type(custom_points).__name__}")
+
+
         self.starters = starters
         self.roster_id = roster_id
         self.players = players

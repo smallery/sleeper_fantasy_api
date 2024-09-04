@@ -3,6 +3,7 @@ from ..models.draft import DraftModel
 from ..models.picks import PicksModel
 from ..models.traded_picks import TradedDraftPicksModel
 from ..config import CONVERT_RESULTS, DEFAULT_SEASON
+from sleeper_api.exceptions import SleeperAPIError
 
 # TO DO: set up results as objects for the draft
 class DraftEndpoint:
@@ -61,9 +62,29 @@ class DraftEndpoint:
         """
         Retrieve the draft order for a specific draft.
         """
-        drafts_json = self.get_draft_by_id(draft_id)
-        # return a list of tuples that have the pick number and the user id
-        return None
+        draft_json = self.get_draft_by_id(draft_id, convert_results=False)
+        
+        if not draft_json:
+            raise SleeperAPIError("Draft not found")
+
+        # Retrieve the draft_order and slot_to_roster_id mappings
+        draft_order = draft_json.get('draft_order', None)
+        slot_to_roster_id = draft_json.get('slot_to_roster_id', None)
+        
+        if not draft_order or not slot_to_roster_id:
+            raise SleeperAPIError("Draft order or slot to roster mapping not found")
+
+        # Combine the draft_order and slot_to_roster_id
+        combined_order = {}
+        for user_id, slot in draft_order.items():
+            roster_id = slot_to_roster_id.get(str(slot))
+            combined_order[user_id] = {"draft_slot": slot, "roster_id": roster_id}
+
+        if not convert_results:
+            return combined_order
+        
+        # Convert results if necessary (if there are any transformations)
+        return combined_order
         
 
     def get_traded_picks(self, draft_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:
@@ -75,5 +96,6 @@ class DraftEndpoint:
         
         if not convert_results:
             return traded_pick_json
-        
-        return [TradedDraftPicksModel.from_json(traded_pick) for traded_pick in traded_pick_json]
+    
+        # Ensure we are passing the right data to TradedDraftPicksModel
+        return TradedDraftPicksModel.from_list(traded_pick_json)
