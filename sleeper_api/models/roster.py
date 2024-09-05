@@ -50,7 +50,7 @@ class RosterModel:
             starters=data['starters'],
             settings=data['settings'],
             roster_id=data['roster_id'],
-            reserve=data['reserve'],
+            reserve=data['reserve'] or [],
             players=data['players'],
             owner_id=data['owner_id'],
             league_id=data['league_id']
