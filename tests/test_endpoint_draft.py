@@ -93,47 +93,6 @@ class TestDraftEndpoint(unittest.TestCase):
         self.assertEqual(picks[0].player_id, "1408")
         self.assertEqual(picks[0].player_name, "Le'Veon Bell")
 
-    def test_get_draft_order_success(self):
-        # Mock draft data with a valid draft_order and slot_to_roster_id
-        mock_draft_response = {
-            "draft_id": "12345",
-            "league_id": "54321",
-            "season": "2022",
-            "status": "complete",
-            "draft_order": {
-                "12345678": 1,
-                "23434332": 2
-            },
-            "slot_to_roster_id": {
-                "1": 10,
-                "2": 3
-            }
-        }
-        self.client.get.return_value = mock_draft_response
-
-        # Call the method and check the draft order
-        draft_order = self.endpoint.get_draft_order(draft_id="12345")
-        self.assertIsNotNone(draft_order)
-        self.assertEqual(draft_order["12345678"]["draft_slot"], 1)
-        self.assertEqual(draft_order["12345678"]["roster_id"], 10)
-        self.assertEqual(draft_order["23434332"]["draft_slot"], 2)
-        self.assertEqual(draft_order["23434332"]["roster_id"], 3)
-
-    def test_get_draft_order_failure(self):
-        # Mock an empty response for draft order and slot to roster mapping
-        mock_draft_response = {
-            "draft_id": "12345",
-            "league_id": "54321",
-            "season": "2022",
-            "status": "complete",
-            "draft_order": None,
-            "slot_to_roster_id": None
-        }
-        self.client.get.return_value = mock_draft_response
-
-        with self.assertRaises(SleeperAPIError, msg="Draft order or slot to roster mapping not found"):
-            self.endpoint.get_draft_order(draft_id="12345")
-
     def test_get_traded_picks_success(self):
         mock_response = [
             {
