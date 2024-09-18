@@ -47,16 +47,16 @@ pip install -r requirements.txt
 The current endpoints available through the API are the following:
 
 - **Draft Endpoint**:
-  - `draft_endpoint`: .
+  - `draft_endpoint`: Retrieve information about a draft (picks, users, trades) with a given draft_id.
 
 - **League Endpoint**:
-  - `league_endpoint`: .
+  - `league_endpoint`: Retrieve information on leagues with a given league_id.
   
 - **Player Endpoint**:
   - `player_endpoint`: Retrieve the database of players from Sleeper along with key attributes.
   
 - **User Endpoint**:
-  - `user_endpoint`: .
+  - `user_endpoint`: Retrieve information about a user using their username or user_id.
 
 For more details, refer to the full [Sleeper API documentation](https://docs.sleeper.com/#introduction).
 
