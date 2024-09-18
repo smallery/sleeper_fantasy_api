@@ -9,7 +9,7 @@ client = SleeperClient()
 draft_endpoint = DraftEndpoint(client)
 
 # Fetch draft picks by draft ID
-draft_picks = draft_endpoint.get_draft_picks(draft_id='1124826302717624320')
+draft_picks = draft_endpoint.get_draft_picks(draft_id='1124826302797624320')
 
 # Display first 12 draft picks
 for pick in draft_picks[:12]:
