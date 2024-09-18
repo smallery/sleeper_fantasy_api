@@ -40,6 +40,7 @@ class RosterModel:
         self.players = players
         self.owner_id = owner_id
         self.league_id = league_id
+        self.bench = [player_id for player_id in players if player_id not in starters]
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'RosterModel':

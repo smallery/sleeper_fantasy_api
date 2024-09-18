@@ -19,6 +19,7 @@ class PlayerModel:
         self.player_id = player_id
         self.first_name = first_name
         self.last_name = last_name
+        self.name = f'{first_name} {last_name}' if last_name else first_name
         self.position = position
         # note sometimes the team_abbr is None but team is filled in with the correct abbreviation
         # this is my best way of fixing this now but should probably add some conditional logic to validate this
@@ -56,7 +57,7 @@ class PlayerModel:
         )
 
     def __repr__(self):
-        return f"<PlayerModel(name={self.first_name} {self.last_name}, player_id={self.player_id}, age={self.age}, team={self.team_abbr}, position={self.position})>"
+        return f"<PlayerModel(name={self.name}, player_id={self.player_id}, age={self.age}, team={self.team_abbr}, position={self.position})>"
     
     def get_attribute(self, attr_name: str) -> Optional[Any]:
         """

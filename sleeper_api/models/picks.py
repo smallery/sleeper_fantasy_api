@@ -80,8 +80,8 @@ class PicksModel:
             raise SleeperAPIError(f"Invalid type for player_id: expected str, got {type(player_id).__name__}")
         if not isinstance(picked_by, str):
             raise SleeperAPIError(f"Invalid type for picked_by: expected str, got {type(picked_by).__name__}")
-        if not isinstance(roster_id, str):
-            raise SleeperAPIError(f"Invalid type for roster_id: expected str, got {type(roster_id).__name__}")
+        if not isinstance(roster_id, (str,int)):
+            raise SleeperAPIError(f"Invalid type for roster_id: expected str or int, got {type(roster_id).__name__}")
         if not isinstance(round, int):
             raise SleeperAPIError(f"Invalid type for round: expected int, got {type(round).__name__}")
         if not isinstance(draft_slot, int):
@@ -95,7 +95,7 @@ class PicksModel:
 
         self.player_id = player_id
         self.picked_by = picked_by
-        self.roster_id = roster_id
+        self.roster_id = str(roster_id)
         self.round = round
         self.draft_slot = draft_slot
         self.pick_no = pick_no
