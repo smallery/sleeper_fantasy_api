@@ -28,6 +28,7 @@ This project simplifies accessing the Sleeper API, allowing users to easily fetc
   
 Planned features:
 - Custom setting of CONVERT_RESULT global variable by user
+- Change samples to be able to be run through the command-line
 
 ## Installation
 To install locally, follow these steps:
