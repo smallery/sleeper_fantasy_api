@@ -33,7 +33,7 @@ class RosterModel:
         if not isinstance(league_id, str):
             raise ValueError(f"Invalid type for 'league_id': expected str, got {type(league_id).__name__}")
         
-        self.starters = starters
+        self.starters = [player_id for player_id in starters if player_id in players] # filters out 0's that sometimes show up
         self.settings = settings
         self.roster_id = roster_id
         self.reserve = reserve
