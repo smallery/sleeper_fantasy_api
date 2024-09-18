@@ -56,38 +56,9 @@ class DraftEndpoint:
         if not convert_results:
             return picks_json
         
-        return [PicksModel.from_dict(pick) for pick in picks_json]
+        return [PicksModel.from_dict(pick) for pick in picks_json]        
 
-    def get_draft_order(self, draft_id: str, convert_results = CONVERT_RESULTS) -> Dict[int, str]:
-        """
-        Retrieve the draft order for a specific draft.
-        """
-        draft_json = self.get_draft_by_id(draft_id, convert_results=False)
-        
-        if not draft_json:
-            raise SleeperAPIError("Draft not found")
-
-        # Retrieve the draft_order and slot_to_roster_id mappings
-        draft_order = draft_json.get('draft_order', None)
-        slot_to_roster_id = draft_json.get('slot_to_roster_id', None)
-        
-        if not draft_order or not slot_to_roster_id:
-            raise SleeperAPIError("Draft order or slot to roster mapping not found")
-
-        # Combine the draft_order and slot_to_roster_id
-        combined_order = {}
-        for user_id, slot in draft_order.items():
-            roster_id = slot_to_roster_id.get(str(slot))
-            combined_order[user_id] = {"draft_slot": slot, "roster_id": roster_id}
-
-        if not convert_results:
-            return combined_order
-        
-        # Convert results if necessary (if there are any transformations)
-        return combined_order
-        
-
-    def get_traded_picks(self, draft_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:
+    def get_traded_picks(self, draft_id: int, convert_results = CONVERT_RESULTS) -> List[Dict]:
         """
         Retrieve all traded picks in a specific draft.
         """

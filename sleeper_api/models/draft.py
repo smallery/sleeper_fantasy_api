@@ -10,8 +10,8 @@ class DraftModel:
         draft_order: Dict[int, str],
         picks: Optional[List[Dict]] = None,
     ):
-        self.draft_id = draft_id
-        self.league_id = league_id
+        self.draft_id = str(draft_id)
+        self.league_id = str(league_id)
         self.season = season
         self.status = status
         self.draft_order = draft_order or {}
