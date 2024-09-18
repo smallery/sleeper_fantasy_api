@@ -7,7 +7,6 @@ name = "sleeper_fantasy_api"
 version = "0.1.0"
 description = "A Python wrapper for the Sleeper Fantasy API"
 readme = "README.md"
-readme-content-type = "text/markdown"
 authors = [
     {name = "Samuel Mallery", email = "mallerysam@gmail.com"}
 ]
@@ -27,8 +26,6 @@ dependencies = [
     "requests==2.31.0",
     "pytest==8.2.2",
 ]
-include = ["LICENSE.md"]
-dynamic = ["urls"]
 
 [project.urls]
 "Homepage" = "https://github.com/smallery/sleeper_fantasy_api"
