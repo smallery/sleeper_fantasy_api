@@ -95,8 +95,8 @@ class TestPlayerEndpoint(unittest.TestCase):
     def test_get_player_not_found(self):
         # Mock empty player data
         with patch.object(self.endpoint, 'get_all_players', return_value=[]):
-            player = self.endpoint.get_player("invalid_id")
-            self.assertIsNone(player)
+            with self.assertRaises(SleeperAPIError):
+                self.endpoint.get_player("invalid_id")
 
 if __name__ == '__main__':
     unittest.main()
