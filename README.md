@@ -28,7 +28,6 @@ This project simplifies accessing the Sleeper API, allowing users to easily fetc
   
 Planned features:
 - Custom setting of CONVERT_RESULT global variable by user
-- Change samples to be able to be run through the command-line
 
 ## Installation
 To install locally, follow these steps:
@@ -43,6 +42,21 @@ cd sleeper_fantasy_api
 pip install -r requirements.txt
 ```
 
+## Usage:
+There are many uses for this repo, some examples are included in ./examples that you can run from the commandline:
+For basic usage, getting user info:
+```bash
+python3 examples/example_basic_usage.py
+```
+For mode advanced usage gather user, league, draft, and player data:
+```bash
+python3 examples/example_advanced_usage.py
+```
+For basic to advanced usage of access the player database:
+```bash
+python3 examples/example_player_endpoint_search_queries.py
+```
+
 ## Endpoints
 The current endpoints available through the API are the following:
 
@@ -54,6 +68,8 @@ The current endpoints available through the API are the following:
   
 - **Player Endpoint**:
   - `player_endpoint`: Retrieve the database of players from Sleeper along with key attributes.
+  This endpoint has built in caching to store the player data locally to avoid excessive API calls.
+  From current docs, it is expected to call the player_endpoint for all players more than once per day.
   
 - **User Endpoint**:
   - `user_endpoint`: Retrieve information about a user using their username or user_id.
