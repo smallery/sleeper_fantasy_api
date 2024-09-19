@@ -12,7 +12,7 @@ from ..models.roster import RosterModel
 from ..models.matchups import MatchupModel
 from ..models.brackets import BracketModel
 from ..models.transactions import TransactionsModel
-from ..models.traded_picks import TradedDraftPicksModel
+from ..models.traded_picks import TradedPickModel
 from .user_endpoint import UserEndpoint
 from ..config import CONVERT_RESULTS
 from ..exceptions import SleeperAPIError
@@ -57,7 +57,6 @@ class LeagueEndpoint:
     - `get_traded_picks(league_id: str, 
                         convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
         Retrieves traded picks for a given league. 
-        Optionally converts results into `TradedDraftPicksModel` instances.
 
     Attributes:
     -----------
@@ -180,4 +179,4 @@ class LeagueEndpoint:
         if not convert_results:
             return traded_picks_json
 
-        return [TradedDraftPicksModel.from_list(traded_pick_data) for traded_pick_data in traded_picks_json]
+        return [TradedPickModel.from_dict(traded_pick) for traded_pick in traded_picks_json]
