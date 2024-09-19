@@ -1,8 +1,12 @@
+"""Module showing the basic usage of the API, setting up the client and hitting the endpoint"""
 import argparse
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.client import SleeperClient
 
 def main(username):
+    """
+    run the basic usage of the api example
+    """
     # Initialize the API client
     client = SleeperClient()
 
@@ -19,7 +23,11 @@ def main(username):
     print(f"Avatar URL: {user.avatar}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fetch and display user information from the Sleeper API.")
-    parser.add_argument('-u', '--username', type=str, required=True, help='The username of the Sleeper user to fetch information for.')
+    parser = argparse.ArgumentParser(
+        description="Fetch and display user information from the Sleeper API.")
+    parser.add_argument(
+        '-u', '--username',
+        type=str, required=True,
+        help='The username of the Sleeper user to fetch information for.')
     args = parser.parse_args()
     main(args.username)

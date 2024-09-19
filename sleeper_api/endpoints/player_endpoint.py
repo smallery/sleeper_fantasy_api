@@ -1,16 +1,21 @@
-# import os
+"""
+This module provides the `PlayerEndpoint` class for interacting 
+with player-related API endpoints of the Sleeper API.
+"""
 import gzip
 import json
 from pathlib import Path
-from platformdirs import user_cache_dir
 from datetime import datetime
 from typing import List, Dict, Optional, Any
+from platformdirs import user_cache_dir
 from ..models.player import PlayerModel
 from ..exceptions import SleeperAPIError
 from ..config import CACHE_DURATION, CONVERT_RESULTS
 
 class PlayerEndpoint:
-
+    """
+    Player endpoint class to enable easy interactions with the API for player info
+    """
     def __init__(self, client, cache_file=None):
         self.client = client
         self.cache_file = cache_file
@@ -29,7 +34,7 @@ class PlayerEndpoint:
         """
         if not self.cache_file.exists():
             return False
-        
+
         cache_mtime = datetime.fromtimestamp(self.cache_file.stat().st_mtime)
         return datetime.now() - cache_mtime < self.cache_duration
 
@@ -39,8 +44,6 @@ class PlayerEndpoint:
         """
         with gzip.open(self.cache_file, 'rt') as f:
             return json.load(f)
-
-        return data
 
     def _save_cache(self, players_json: List[Dict]):
         """
@@ -52,7 +55,9 @@ class PlayerEndpoint:
         except IOError as e:
             print(f"Warning: Could not save cache file: {e}")
 
-    def get_all_players(self, sport = 'nfl', convert_results = CONVERT_RESULTS) -> List[PlayerModel]:
+    def get_all_players(
+            self, sport = 'nfl', convert_results = CONVERT_RESULTS
+            ) -> List[PlayerModel]:
         """
         Retrieve all players, either from the cache or by making an API call.
         """
@@ -62,16 +67,19 @@ class PlayerEndpoint:
             endpoint = f"players/{sport}"
             players_json = self.client.get(endpoint)
             self._save_cache(players_json)
-        
+
         if not convert_results:
             return players_json
 
-        players = [PlayerModel.from_dict(player_data) for player_id,player_data in list(players_json.items())]
+        players = [
+            PlayerModel.from_dict(player_data) for player_id,player_data in list(players_json.items())
+            ]
         return players
 
-
-    def get_trending_players(self, sport: str, trend_type: str, lookback_hours: Optional[int] = 24,
-                            limit: Optional[int] = 25, convert_results=CONVERT_RESULTS) -> List[Dict[str, int]]:
+    def get_trending_players(
+            self, sport: str, trend_type: str, lookback_hours: Optional[int] = 24,
+            limit: Optional[int] = 25, convert_results=CONVERT_RESULTS
+            ) -> List[Dict[str, int]]:
         """
         Retrieve trending players based on adds or drops.
 
@@ -83,13 +91,13 @@ class PlayerEndpoint:
         """
         if trend_type not in ('add', 'drop'):
             raise SleeperAPIError("Trend type must either be add or drop.")
-        
+
         endpoint = f"players/{sport}/trending/{trend_type}?lookback_hours={lookback_hours}&limit={limit}"
         trending_data = self.client.get(endpoint)
 
         if not convert_results:
             return trending_data
-        
+
         # If convert_results is True, map the trending data to PlayerModel instances
         all_players = self.get_all_players(convert_results)
         player_dict = {player.player_id: player for player in all_players}
@@ -104,28 +112,33 @@ class PlayerEndpoint:
                 elif trend_type == 'drop':
                     player.drop_count = entry['count']
                 result.append(player)
-        
+
         return result
 
-
     def get_player(self,player_id):
-        # returns a specific playerModel for the player ID
-
+        """
+        Returns a specific playerModel for the player ID
+        """
         for player in self.get_all_players():
             if player.player_id == player_id:
                 return player
-        
-        #raise SleeperAPIError("Player Not Found")
-        return None
+
+        raise SleeperAPIError(f"Player_ID: {player_id} Not Found")
 
     def search_players(self, search_keys: Dict[str, Any], convert_results=CONVERT_RESULTS):
-        # Helper function to evaluate individual criteria
+        """
+        Search for players based on complex criteria using a combination of AND/OR logic and comparison operators.
+        
+        This function retrieves all player data and filters it according to the search keys provided.
+        The search keys can include various logical conditions (AND/OR) and comparison operators 
+        (e.g., '==', '!=', '>', '<', '>=', '<=', 'in', 'not in') for different attributes of the player data.
+        """
         def safe_search_type(record, key, value):
             record_value = record.get(key)
 
             if record_value is None:
                 return False  # Skip records where the value is None
-    
+
             if isinstance(value, dict):
                 for operator, val in value.items():
                     if operator == "==":
@@ -168,7 +181,7 @@ class PlayerEndpoint:
                 else:
                     return all(safe_search_type(record, k, v) for k, v in conditions.items())
             else:
-                raise ValueError("Unsupported conditions format: {}".format(conditions))
+                raise ValueError(f"Unsupported conditions format: {conditions}")
 
         # Load all player data
         all_players_json = self.get_all_players(convert_results=False)
@@ -193,11 +206,11 @@ class PlayerEndpoint:
         return [PlayerModel.from_dict(data) for data in filtered_player_json]
 
     def get_players_by_team(self,team_abbr) -> List[PlayerModel]:
-        # use the query to return a list of player models where the team_abbr matches the player team_abbr
+        '''use the query to return a list of player models where the team_abbr matches the player team_abbr'''
         team_players = []
         for player in self.get_all_players():
             if player.team_abbr == team_abbr:
                 team_players.append(player)
-        
+
         #raise SleeperAPIError("Player Not Found")
         return team_players

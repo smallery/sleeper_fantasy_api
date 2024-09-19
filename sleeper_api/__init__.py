@@ -1,3 +1,6 @@
+"""
+define what is accessible for the sleeper_api
+"""
 # Import the main client class for easy access
 from .client import SleeperClient
 
