@@ -1,5 +1,5 @@
 import unittest
-from sleeper_api.models.traded_picks import TradedPick, TradedDraftPicksModel
+from sleeper_api.models.traded_picks import TradedPickModel, TradedDraftPicksModel
 
 class TestTradedPick(unittest.TestCase):
 
@@ -20,7 +20,7 @@ class TestTradedPick(unittest.TestCase):
         }
 
     def test_traded_pick_initialization(self):
-        pick = TradedPick.from_dict(self.valid_pick_data)
+        pick = TradedPickModel.from_dict(self.valid_pick_data)
 
         self.assertEqual(pick.season, "2019")
         self.assertEqual(pick.round, 5)
@@ -29,14 +29,14 @@ class TestTradedPick(unittest.TestCase):
         self.assertEqual(pick.owner_id, 2)
 
     def test_traded_pick_to_dict(self):
-        pick = TradedPick.from_dict(self.valid_pick_data)
+        pick = TradedPickModel.from_dict(self.valid_pick_data)
         pick_dict = pick.to_dict()
 
         self.assertEqual(pick_dict, self.valid_pick_data)
 
     def test_traded_pick_repr(self):
-        pick = TradedPick.from_dict(self.valid_pick_data)
-        expected_repr = "<TradedPick(season=2019, round=5, roster_id=1, previous_owner_id=1, owner_id=2)>"
+        pick = TradedPickModel.from_dict(self.valid_pick_data)
+        expected_repr = "<TradedPickModel(season=2019, round=5, roster_id=1, previous_owner_id=1, owner_id=2)>"
         self.assertEqual(repr(pick), expected_repr)
 
     def test_traded_draft_picks_model_initialization(self):
@@ -72,7 +72,7 @@ class TestTradedPick(unittest.TestCase):
         }
 
         with self.assertRaises(ValueError):
-            TradedPick.from_dict(invalid_pick_data)
+            TradedPickModel.from_dict(invalid_pick_data)
 
 if __name__ == '__main__':
     unittest.main()

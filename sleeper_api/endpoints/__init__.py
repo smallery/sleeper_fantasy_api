@@ -7,13 +7,6 @@ It imports and exposes the following endpoint classes:
 - `DraftEndpoint`: For handling draft-related API endpoints.
 - `PlayerEndpoint`: For accessing player-related API endpoints.
 
-Classes:
----------
-- `UserEndpoint`: Contains methods for retrieving and managing user data.
-- `LeagueEndpoint`: Provides methods to interact with league information.
-- `DraftEndpoint`: Handles operations related to drafts.
-- `PlayerEndpoint`: Offers functionality for accessing and managing player data.
-
 Usage:
 ------
 To use the provided endpoint classes, import them from this module:

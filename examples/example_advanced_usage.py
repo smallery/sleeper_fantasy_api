@@ -31,6 +31,11 @@ def main(username):
     # populate the leagues list
     user_endpoint.fetch_nfl_leagues(user, season=2024)
     print(f'{user.username} was in {len(user.nfl_leagues)} league(s) in 2024')
+    for league in user.nfl_leagues:
+        print(f'League: {league.name:<20} | '
+              f'League ID: {league.league_id:<15} | '
+              f'Draft ID: {league.draft_id:<15}'
+              )
 
     # create league endpoint
 
