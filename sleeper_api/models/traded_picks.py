@@ -1,6 +1,6 @@
 from typing import List, Dict, Union
 
-class TradedPick:
+class TradedPickModel:
     def __init__(self, season: str, round: int, roster_id: int, previous_owner_id: int, owner_id: int):
         
         # Add type checks to raise ValueError if data types are invalid
@@ -23,7 +23,7 @@ class TradedPick:
         self.owner_id = owner_id
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Union[str, int]]) -> 'TradedPick':
+    def from_dict(cls, data: Dict[str, Union[str, int]]) -> 'TradedPickModel':
         return cls(
             season=data['season'],
             round=data['round'],
@@ -47,12 +47,12 @@ class TradedPick:
 
 
 class TradedDraftPicksModel:
-    def __init__(self, traded_picks: List[TradedPick]):
+    def __init__(self, traded_picks: List[TradedPickModel]):
         self.traded_picks = traded_picks
 
     @classmethod
     def from_list(cls, data: List[Dict[str, Union[str, int]]]) -> 'TradedDraftPicksModel':
-        traded_picks = [TradedPick.from_dict(pick) for pick in data]
+        traded_picks = [TradedPickModel.from_dict(pick) for pick in data]
         return cls(traded_picks=traded_picks)
 
     def to_list(self) -> List[Dict[str, Union[str, int]]]:
