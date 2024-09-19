@@ -1,9 +1,6 @@
 import unittest
 from unittest.mock import MagicMock
 from sleeper_api.endpoints.draft_endpoint import DraftEndpoint
-from sleeper_api.models.draft import DraftModel
-from sleeper_api.models.picks import PicksModel
-from sleeper_api.models.traded_picks import TradedDraftPicksModel, TradedPick
 from sleeper_api.exceptions import SleeperAPIError
 
 
