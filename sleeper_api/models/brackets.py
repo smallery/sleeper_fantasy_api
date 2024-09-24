@@ -57,4 +57,4 @@ class BracketModel:
         }
 
     def __repr__(self):
-        return f"<BracketModel(round={self.round}, match={self.match_id}, t1={self.team1}, t2={self.team2}, winner={self.winner}, loser={self.loser}, position={self.position})>"
+        return f"<BracketModel(round={self.round}, match={self.match_id}, roster1={self.team1}, roster2={self.team2}, winner={self.winner}, loser={self.loser}, position={self.position})>"
