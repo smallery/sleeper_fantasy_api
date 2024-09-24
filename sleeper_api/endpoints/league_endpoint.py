@@ -69,7 +69,7 @@ class LeagueEndpoint:
     def __init__(self, client):
         self.client = client
 
-    def get_league(self, league_id: str) -> LeagueModel:
+    def get_league_by_id(self, league_id: str) -> LeagueModel:
         """
         Retrieve a specific league by its ID.
         """

@@ -18,7 +18,7 @@ from .models.matchups import MatchupModel
 from .models.picks import PicksModel
 from .models.player import PlayerModel
 from .models.roster import RosterModel
-from .models.traded_picks import TradedDraftPicksModel
+from .models.traded_picks import TradedPickModel
 from .models.transactions import TransactionsModel
 from .models.user import UserModel
 
@@ -39,7 +39,7 @@ __all__ = [
     "PicksModel",
     "PlayerModel",
     "RosterModel",
-    "TradedDraftPicksModel",
+    "TradedPickModel",
     "TransactionsModel",
     "UserModel",
     "SleeperAPIError",
