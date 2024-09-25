@@ -29,9 +29,9 @@ def main(username):
     print(f"Username: {user.username}\n")
 
     # populate the leagues list
-    user_endpoint.fetch_nfl_leagues(user, season=2024)
-    print(f'{user.username} was in {len(user.nfl_leagues)} league(s) in 2024')
-    for league in user.nfl_leagues:
+    user_leagues = user_endpoint.fetch_nfl_leagues(user.user_id, season=2024)
+    print(f'{user.username} was in {len(user_leagues)} league(s) in 2024')
+    for league in user_leagues:
         print(f'League: {league.name:<20} | '
               f'League ID: {league.league_id:<15} | '
               f'Draft ID: {league.draft_id:<15}'
@@ -40,7 +40,7 @@ def main(username):
     # create league endpoint
 
     # fetch the first league out of all leagues
-    league = league_endpoint.get_league(user.nfl_leagues[0].league_id)
+    league = league_endpoint.get_league_by_id(user_leagues[0].league_id)
     print(f'The first league was for the {league.sport} called {league.name}.')
 
     league_users = league_endpoint.get_users(league.league_id)
