@@ -6,37 +6,13 @@ The `DraftEndpoint` class includes methods for retrieving draft information,
 draft picks, and traded picks. It supports fetching drafts by ID, by league,
 and by user, as well as handling the conversion of results into model instances.
 
-Classes:
----------
-- `DraftEndpoint`: Contains methods for accessing draft data from the Sleeper API.
-
-Usage:
-------
-To use the `DraftEndpoint` class, instantiate it with an API client and call its methods 
-to retrieve draft-related data:
-
-    >>> from your_module import DraftEndpoint
-    >>> client = YourAPIClient()  # Replace with actual client
-    >>> draft_endpoint = DraftEndpoint(client)
-
-    # Example usage
-    >>> draft = draft_endpoint.get_draft_by_id('draft_id')
-    >>> drafts = draft_endpoint.get_drafts_by_league('league_id')
-    >>> user_drafts = draft_endpoint.get_drafts_by_user('user_id')
-    >>> picks = draft_endpoint.get_draft_picks('draft_id')
-    >>> traded_picks = draft_endpoint.get_traded_picks('draft_id')
-
-Exception Handling:
--------------------
-- `SleeperAPIError`: Raised for API errors and invalid responses.
-
 """
 
 
 from typing import List, Dict
 from ..models.draft import DraftModel
 from ..models.picks import PicksModel
-from ..models.traded_picks import TradedDraftPicksModel
+from ..models.traded_picks import TradedPickModel
 from ..config import CONVERT_RESULTS, DEFAULT_SEASON
 
 # TO DO: set up results as objects for the draft
@@ -128,8 +104,11 @@ class DraftEndpoint:
 
         if not convert_results:
             return drafts_json
+        # to improve data for draft endpoint, this sometimes doesn't return draft_order
+        # so I do a lookup on ID instead to get the full dataset
+        draft_ids = [draft['draft_id'] for draft in drafts_json]
 
-        return [DraftModel.from_json(draft) for draft in drafts_json]
+        return [self.get_draft_by_id(draft_id) for draft_id in draft_ids]
 
     def get_draft_picks(self, draft_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:
         """
@@ -154,4 +133,4 @@ class DraftEndpoint:
             return traded_pick_json
 
         # Ensure we are passing the right data to TradedDraftPicksModel
-        return TradedDraftPicksModel.from_list(traded_pick_json)
+        return [TradedPickModel.from_dict(traded_pick) for traded_pick in traded_pick_json]

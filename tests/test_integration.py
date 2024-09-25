@@ -21,14 +21,7 @@ class TestIntegration(unittest.TestCase):
             "display_name": "SleeperUser",
             "avatar": "cc12ec49965eb7856f84d71cf85306af"
         }
-        self.client.get.return_value = mock_user_response
-
-        # Call get_user and assert that the user model is properly created
-        user = self.user_endpoint.get_user(user_id="12345678")
-        self.assertIsInstance(user, UserModel)
-        self.assertEqual(user.user_id, "12345678")
-        self.assertEqual(user.username, "sleeperuser")
-
+        
         # Mock league data response from API
         mock_league_response = [{
             "league_id": "123",
@@ -42,15 +35,24 @@ class TestIntegration(unittest.TestCase):
             "settings": {"playoff_teams": 4},
             "scoring_settings": {"pass_td": 4.0, "rush_td": 6.0}
         }]
-        self.client.get.return_value = mock_league_response
 
-        # Call fetch_nfl_leagues and assert that league data is correctly added to the user model
-        self.user_endpoint.fetch_nfl_leagues(user=user, season=2023)
-        self.assertEqual(len(user.nfl_leagues), 1)
-        league = user.nfl_leagues[0]
+        # Use side_effect to mock sequential calls
+        self.client.get.side_effect = [mock_user_response, mock_league_response]
+
+        # Call get_user and assert that the user model is properly created
+        user = self.user_endpoint.get_user(user_id="12345678")
+        self.assertIsInstance(user, UserModel)
+        self.assertEqual(user.user_id, "12345678")
+        self.assertEqual(user.username, "sleeperuser")
+
+        # Call fetch_nfl_leagues using user_id instead of user object
+        leagues = self.user_endpoint.fetch_nfl_leagues(user_id=user.user_id, season=2023)
+        self.assertEqual(len(leagues), 1)
+        league = leagues[0]
         self.assertIsInstance(league, LeagueModel)
         self.assertEqual(league.league_id, "123")
         self.assertEqual(league.name, "Best League")
+        self.assertEqual(league.sport, "nfl")
 
     def test_get_league_workflow(self):
         # Mock league data
@@ -69,7 +71,7 @@ class TestIntegration(unittest.TestCase):
         self.client.get.return_value = mock_league_response
 
         # Call get_league from LeagueEndpoint
-        league = self.league_endpoint.get_league(league_id="123")
+        league = self.league_endpoint.get_league_by_id(league_id="123")
         self.assertIsInstance(league, LeagueModel)
         self.assertEqual(league.league_id, "123")
         self.assertEqual(league.name, "Best League")

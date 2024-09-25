@@ -77,7 +77,7 @@ class PlayerEndpoint:
         return players
 
     def get_trending_players(
-            self, sport: str, trend_type: str, lookback_hours: Optional[int] = 24,
+            self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
             limit: Optional[int] = 25, convert_results=CONVERT_RESULTS
             ) -> List[Dict[str, int]]:
         """
