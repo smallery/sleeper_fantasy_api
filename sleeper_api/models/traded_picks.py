@@ -1,4 +1,4 @@
-from typing import List, Dict, Union
+from typing import Dict, Union
 
 class TradedPickModel:
     def __init__(self, season: str, round: int, roster_id: int, previous_owner_id: int, owner_id: int):
@@ -44,19 +44,4 @@ class TradedPickModel:
     def __repr__(self):
         return (f"<TradedPickModel(season={self.season}, round={self.round}, roster_id={self.roster_id}, "
                 f"previous_owner_id={self.previous_owner_id}, owner_id={self.owner_id})>")
-
-
-class TradedDraftPicksModel:
-    def __init__(self, traded_picks: List[TradedPickModel]):
-        self.traded_picks = traded_picks
-
-    @classmethod
-    def from_list(cls, data: List[Dict[str, Union[str, int]]]) -> 'TradedDraftPicksModel':
-        traded_picks = [TradedPickModel.from_dict(pick) for pick in data]
-        return cls(traded_picks=traded_picks)
-
-    def to_list(self) -> List[Dict[str, Union[str, int]]]:
-        return [pick.to_dict() for pick in self.traded_picks]
-
-    def __repr__(self):
-        return f"<TradedDraftPicksModel(traded_picks={len(self.traded_picks)} picks)>"
+    
