@@ -49,11 +49,11 @@ pip install -r requirements.txt
 There are many uses for this repo, some examples are included in ./examples that you can run from the commandline:
 For basic usage, getting user info:
 ```bash
-python3 examples/example_basic_usage.py
+python3 examples/example_basic_usage.py -u [YOUR_USERNAME]
 ```
 For mode advanced usage gather user, league, draft, and player data:
 ```bash
-python3 examples/example_advanced_usage.py
+python3 examples/example_advanced_usage.py -u [YOUR_USERNAME]
 ```
 For basic to advanced usage of access the player database:
 ```bash
