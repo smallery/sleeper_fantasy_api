@@ -16,7 +16,7 @@ class TestLeagueEndpoint(unittest.TestCase):
         self.client.get.side_effect = SleeperAPIError("League not found")
 
         with self.assertRaises(SleeperAPIError) as context:
-            self.endpoint.get_league(league_id="invalid_league")
+            self.endpoint.get_league_by_id(league_id="invalid_league")
         
         self.assertEqual(str(context.exception), "League not found")
 
@@ -25,7 +25,7 @@ class TestLeagueEndpoint(unittest.TestCase):
         self.client.get.return_value = None
 
         with self.assertRaises(SleeperAPIError, msg="League not found"):
-            self.endpoint.get_league(league_id="empty_league")
+            self.endpoint.get_league_by_id(league_id="empty_league")
 
     def test_get_league_success(self):
         # Mock a valid league response
@@ -46,7 +46,7 @@ class TestLeagueEndpoint(unittest.TestCase):
         self.client.get.return_value = mock_league_response
 
         # Call the get_league method and assert the response is correct
-        league = self.endpoint.get_league(league_id="123")
+        league = self.endpoint.get_league_by_id(league_id="123")
         self.assertIsInstance(league, LeagueModel)
         self.assertEqual(league.league_id, "123")
         self.assertEqual(league.name, "Test League")
