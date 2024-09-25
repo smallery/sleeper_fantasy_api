@@ -2,6 +2,9 @@ import unittest
 from unittest.mock import MagicMock
 from sleeper_api.endpoints.draft_endpoint import DraftEndpoint
 from sleeper_api.exceptions import SleeperAPIError
+from sleeper_api.models.draft import DraftModel
+from sleeper_api.models.picks import PicksModel
+from sleeper_api.models.traded_picks import TradedPickModel
 
 
 class TestDraftEndpoint(unittest.TestCase):
@@ -23,6 +26,7 @@ class TestDraftEndpoint(unittest.TestCase):
         self.client.get.return_value = mock_draft_response
 
         draft = self.endpoint.get_draft_by_id(draft_id="12345")
+        self.assertIsInstance(draft, DraftModel)
         self.assertEqual(draft.draft_id, "12345")
         self.assertEqual(draft.league_id, "54321")
         self.assertEqual(draft.season, "2022")
@@ -56,6 +60,7 @@ class TestDraftEndpoint(unittest.TestCase):
 
         drafts = self.endpoint.get_drafts_by_league(league_id="54321")
         self.assertEqual(len(drafts), 2)
+        self.assertIsInstance(drafts[0], DraftModel)
         self.assertEqual(drafts[0].draft_id, "12345")
         self.assertEqual(drafts[1].draft_id, "67890")
 
@@ -85,12 +90,21 @@ class TestDraftEndpoint(unittest.TestCase):
         }]
         self.client.get.return_value = mock_picks_response
 
+        # Call the get_draft_picks method
         picks = self.endpoint.get_draft_picks(draft_id="12345")
+
+        # Assert the correct number of picks
         self.assertEqual(len(picks), 1)
+
+        # Assert individual fields
         self.assertEqual(picks[0].player_id, "1408")
         self.assertEqual(picks[0].player_name, "Le'Veon Bell")
+        self.assertEqual(picks[0].metadata.team, "PIT")
+        self.assertEqual(picks[0].metadata.position, "RB")
+
 
     def test_get_traded_picks_success(self):
+        # Mock traded picks data
         mock_response = [
             {
                 "season": "2022",
@@ -112,10 +126,11 @@ class TestDraftEndpoint(unittest.TestCase):
         
         traded_picks = self.endpoint.get_traded_picks(draft_id="12345")
         
-        self.assertEqual(len(traded_picks.traded_picks), 2)
-        self.assertEqual(traded_picks.traded_picks[0].season, "2022")
-        self.assertEqual(traded_picks.traded_picks[0].round, 1)
-        self.assertEqual(traded_picks.traded_picks[0].owner_id, 3)
+        self.assertEqual(len(traded_picks), 2)
+        self.assertIsInstance(traded_picks[0], TradedPickModel)
+        self.assertEqual(traded_picks[0].season, "2022")
+        self.assertEqual(traded_picks[0].round, 1)
+        self.assertEqual(traded_picks[0].owner_id, 3)
 
         
 if __name__ == '__main__':
