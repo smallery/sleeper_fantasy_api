@@ -29,6 +29,7 @@ dependencies = [
 
 [project.urls]
 "Homepage" = "https://github.com/smallery/sleeper_fantasy_api"
+"Issues" = "https://github.com/smallery/sleeper_fantasy_api/issues"
 
 [tool.setuptools]
 include-package-data = true
