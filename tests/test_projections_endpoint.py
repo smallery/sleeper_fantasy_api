@@ -1,6 +1,6 @@
 """Tests for the ProjectionsEndpoint class."""
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
 from sleeper_api.persistent_cache import PersistentCache
 from sleeper_api.exceptions import SleeperAPIError
