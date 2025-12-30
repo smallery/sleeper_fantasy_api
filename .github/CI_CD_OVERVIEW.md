@@ -4,74 +4,74 @@ This document provides an overview of the continuous integration and continuous 
 
 ## Workflows
 
-### 1. Tests Workflow (`tests.yml`)
+### CI Workflow (`ci.yml`)
 
-**Triggers**: Push to main/master, Pull Requests to main/master
+**Single, efficient workflow that runs on all PRs and pushes to main/master**
 
-**Jobs**:
+**Triggers**: Push to main/master, Pull Requests
 
-- **test**: Runs the full test suite
-  - Matrix: Python 3.10, 3.11, 3.12 on Ubuntu
-  - Installs dependencies from requirements.txt
-  - Runs pytest with coverage reporting
-  - Uploads coverage to Codecov (Python 3.11 only)
+**Jobs** (runs in parallel):
 
-- **lint**: Code quality checks
-  - Runs flake8 for syntax errors and style violations
-  - Enforces code quality standards
+1. **test**: Runs the full test suite
+   - Matrix: Python 3.10, 3.11, 3.12 on Ubuntu
+   - Installs package in development mode (`pip install -e .`)
+   - Runs pytest with coverage reporting
+   - Uploads coverage to Codecov (Python 3.11 only, PR only)
+   - **Fast**: Uses pip cache for faster dependency installation
 
-- **import-check**: Module import validation
-  - Verifies all modules can be imported successfully
-  - Tests: Client, Endpoints, Models, Cache
+2. **lint**: Code quality checks
+   - Runs flake8 for syntax errors (blocking)
+   - Runs flake8 for style violations (non-blocking)
+   - **Fast**: Uses pip cache
 
-**Purpose**: Ensure code quality and functionality on main branches
+3. **imports**: Module import validation
+   - Installs package in development mode
+   - Verifies all new modules can be imported successfully
+   - Tests: Client, ProjectionsEndpoint, PersistentCache, NFLStateModel, TeamVarianceModel
 
----
+**Total Checks**: 5 (3 test jobs + 1 lint + 1 import)
 
-### 2. PR Tests Workflow (`pr-tests.yml`)
-
-**Triggers**: Pull Request events (opened, synchronize, reopened)
-
-**Jobs**:
-
-- **test-all**: Comprehensive test suite
-  - Runs all tests in parallel using pytest-xdist
-  - Generates HTML coverage reports
-  - Breaks down tests by module type
-  - Uploads test results as artifacts
-
-- **test-new-features**: Focused testing for new features
-  - Projections Endpoint tests
-  - Persistent Cache tests
-  - NFL State Model tests
-  - Team Variance Model tests
-
-- **test-compatibility**: Cross-platform testing
-  - Matrix: Ubuntu, macOS, Windows
-  - Matrix: Python 3.10, 3.11
-  - Runs smoke tests on all platforms
-
-**Purpose**: Thorough validation of pull requests before merging
+**Purpose**: Fast, efficient CI/CD with minimal redundancy
 
 ---
 
-### 3. Code Quality Workflow (`code-quality.yml`)
+## Previous Setup (Removed for Efficiency)
 
-**Triggers**: Push to main/master, Pull Requests to main/master
+We previously had 11 separate checks across 5 workflows:
+- ❌ tests.yml (5 jobs)
+- ❌ pr-tests.yml (3 jobs)
+- ❌ code-quality.yml (2 jobs)
+- ❌ pytest.yml (1 job)
+- ❌ pylint.yml (1 job)
 
-**Jobs**:
+**Problem**: Too many redundant jobs, slow feedback, wasted CI minutes
 
-- **quality**: Code formatting and type checking
-  - black: Code formatting validation
-  - isort: Import sorting validation
-  - flake8: Linting
-  - mypy: Type checking (informational)
+**Solution**: Single `ci.yml` workflow with 3 parallel jobs = **5 total checks**
 
-- **security**: Security scanning
-  - safety: Dependency vulnerability checking
-  - bandit: Security issue detection in code
+---
 
-**Purpose**: Maintain code quality and security standards
+## Key Improvements
+
+### 1. Package Installation
+All workflows now properly install the package:
+```bash
+pip install -e .  # Installs sleeper_api in development mode
+```
+This fixes `ModuleNotFoundError: No module named 'sleeper_api'`
+
+### 2. Pip Caching
+Uses GitHub Actions pip cache for faster runs:
+```yaml
+- uses: actions/setup-python@v5
+  with:
+    cache: 'pip'  # Caches dependencies
+```
+
+### 3. Parallel Execution
+All 3 jobs run in parallel for fastest feedback.
+
+### 4. Fail-Fast Disabled
+Matrix continues testing all Python versions even if one fails.
 
 ---
 
