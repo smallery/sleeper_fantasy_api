@@ -1,5 +1,11 @@
 # sleeper_fantasy_api
 
+[![Tests](https://github.com/smallery/sleeper_fantasy_api/workflows/Tests/badge.svg)](https://github.com/smallery/sleeper_fantasy_api/actions/workflows/tests.yml)
+[![Code Quality](https://github.com/smallery/sleeper_fantasy_api/workflows/Code%20Quality/badge.svg)](https://github.com/smallery/sleeper_fantasy_api/actions/workflows/code-quality.yml)
+[![codecov](https://codecov.io/gh/smallery/sleeper_fantasy_api/branch/main/graph/badge.svg)](https://codecov.io/gh/smallery/sleeper_fantasy_api)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 An object-oriented Python wrapper for the [Sleeper Fantasy Football API](https://docs.sleeper.com/), designed to simplify working with data on users, leagues, transactions, and more.
 
 The Sleeper API is currently read-only.
@@ -224,10 +230,30 @@ The current endpoints available through the API are the following:
 For more details, refer to the full [Sleeper API documentation](https://docs.sleeper.com/#introduction).
 
 ## Contributing
-Contributions are welcome! Please follow the guidelines below:
-- Fork the repository.
-- Create a new branch (`git checkout -b githubUsername/feature-branch`).
-- Submit a pull request.
+
+Contributions are welcome! We have comprehensive CI/CD in place to ensure code quality.
+
+### Quick Start for Contributors
+
+1. Fork the repository
+2. Create a new branch (`git checkout -b githubUsername/feature-branch`)
+3. Install dev dependencies: `pip install -r requirements-dev.txt`
+4. Make your changes and add tests
+5. Run tests: `pytest --cov=sleeper_api`
+6. Format code: `black sleeper_api tests examples`
+7. Submit a pull request
+
+### CI/CD Checks
+
+All pull requests automatically run:
+- ✅ Tests on Python 3.10, 3.11, 3.12
+- ✅ Cross-platform testing (Ubuntu, macOS, Windows)
+- ✅ Code coverage reporting
+- ✅ Code quality (black, isort, flake8)
+- ✅ Security scanning
+- ✅ Import validation
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more information.
