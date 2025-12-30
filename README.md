@@ -1,7 +1,6 @@
 # sleeper_fantasy_api
 
-[![Tests](https://github.com/smallery/sleeper_fantasy_api/workflows/Tests/badge.svg)](https://github.com/smallery/sleeper_fantasy_api/actions/workflows/tests.yml)
-[![Code Quality](https://github.com/smallery/sleeper_fantasy_api/workflows/Code%20Quality/badge.svg)](https://github.com/smallery/sleeper_fantasy_api/actions/workflows/code-quality.yml)
+[![CI](https://github.com/smallery/sleeper_fantasy_api/workflows/CI/badge.svg)](https://github.com/smallery/sleeper_fantasy_api/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/smallery/sleeper_fantasy_api/branch/main/graph/badge.svg)](https://codecov.io/gh/smallery/sleeper_fantasy_api)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -245,13 +244,12 @@ Contributions are welcome! We have comprehensive CI/CD in place to ensure code q
 
 ### CI/CD Checks
 
-All pull requests automatically run:
-- ✅ Tests on Python 3.10, 3.11, 3.12
-- ✅ Cross-platform testing (Ubuntu, macOS, Windows)
-- ✅ Code coverage reporting
-- ✅ Code quality (black, isort, flake8)
-- ✅ Security scanning
-- ✅ Import validation
+All pull requests automatically run **5 efficient checks** in parallel:
+- ✅ Tests on Python 3.10, 3.11, 3.12 (3 jobs)
+- ✅ Code quality with flake8 (1 job)
+- ✅ Import validation (1 job)
+- ✅ Coverage reporting to Codecov
+- ⚡ Fast execution with pip caching
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 

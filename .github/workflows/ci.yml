@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Test Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov
+        pip install -e .
+
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=sleeper_api --cov-report=xml --cov-report=term -v
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      if: matrix.python-version == '3.11' && github.event_name == 'pull_request'
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        files: ./coverage.xml
+        fail_ci_if_error: false
+      continue-on-error: true
+
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8
+
+    - name: Lint with flake8
+      run: |
+        # Stop on syntax errors or undefined names
+        flake8 sleeper_api --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Check for style issues (non-blocking)
+        flake8 sleeper_api --count --exit-zero --max-complexity=15 --max-line-length=127 --statistics
+
+  imports:
+    name: Import Validation
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -e .
+
+    - name: Verify imports
+      run: |
+        python -c "from sleeper_api.client import SleeperClient; print('✅ Client')"
+        python -c "from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint; print('✅ ProjectionsEndpoint')"
+        python -c "from sleeper_api.persistent_cache import PersistentCache; print('✅ PersistentCache')"
+        python -c "from sleeper_api.models.nfl_state import NFLStateModel; print('✅ NFLStateModel')"
+        python -c "from sleeper_api.models.variance import TeamVarianceModel; print('✅ TeamVarianceModel')"
+        echo "✅ All imports successful!"
