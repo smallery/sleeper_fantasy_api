@@ -1,5 +1,4 @@
 """Tests for the TeamVarianceModel class."""
-import pytest
 from sleeper_api.models.variance import TeamVarianceModel
 
 

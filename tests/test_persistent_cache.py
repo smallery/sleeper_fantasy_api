@@ -1,9 +1,6 @@
 """Tests for the PersistentCache class."""
-import pytest
-import json
 import time
-from pathlib import Path
-from datetime import datetime, timedelta
+import pytest
 from sleeper_api.persistent_cache import PersistentCache
 
 

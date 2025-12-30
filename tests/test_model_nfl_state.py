@@ -1,5 +1,4 @@
 """Tests for the NFLStateModel class."""
-import pytest
 from sleeper_api.models.nfl_state import NFLStateModel
 
 

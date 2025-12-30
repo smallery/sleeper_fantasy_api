@@ -5,7 +5,7 @@ with player projections from the Sleeper API.
 Note: This uses an undocumented Sleeper endpoint that may change.
 """
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, List, Optional
 from ..persistent_cache import PersistentCache
 from ..exceptions import SleeperAPIError
 
