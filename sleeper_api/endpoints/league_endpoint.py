@@ -13,6 +13,7 @@ from ..models.matchups import MatchupModel
 from ..models.brackets import BracketModel
 from ..models.transactions import TransactionsModel
 from ..models.traded_picks import TradedPickModel
+from ..models.nfl_state import NFLStateModel
 from .user_endpoint import UserEndpoint
 from ..config import CONVERT_RESULTS
 from ..exceptions import SleeperAPIError
@@ -180,3 +181,18 @@ class LeagueEndpoint:
             return traded_picks_json
 
         return [TradedPickModel.from_dict(traded_pick) for traded_pick in traded_picks_json]
+
+    def get_nfl_state(self, convert_results = CONVERT_RESULTS):
+        """
+        Get the current NFL state (season, week, etc.).
+
+        Returns:
+            NFLStateModel or dict with current season information.
+        """
+        endpoint = "state/nfl"
+        state_data = self.client.get(endpoint)
+
+        if not convert_results:
+            return state_data
+
+        return NFLStateModel.from_dict(state_data)
