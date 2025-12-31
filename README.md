@@ -88,6 +88,8 @@ print(f"League: {league.name}")
 
 Access weekly player projections and calculate team totals:
 
+**Important**: The projections endpoint returns **pre-game predictions**, not actual stats. For actual points scored after games are played, use the matchups endpoint: `league_endpoint.get_matchups(league_id, week)`.
+
 ```python
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
 from sleeper_api.persistent_cache import PersistentCache
@@ -107,6 +109,7 @@ projections = projections_endpoint.get_projections(
 )
 # Returns ALL projection data from Sleeper API
 # Includes: pts_ppr, pts_half_ppr, pts_std, pass_yd, rush_yd, rec, etc.
+# NOTE: These are PROJECTIONS (predictions), not actuals
 
 # Option 2: Get projection for a single player (uses cache)
 player_proj = projections_endpoint.get_player_projection(
@@ -115,9 +118,9 @@ player_proj = projections_endpoint.get_player_projection(
     week=nfl_state.week
 )
 if player_proj:
-    print(f"PPR Points: {player_proj.get('pts_ppr')}")
-    print(f"Passing Yards: {player_proj.get('pass_yd')}")
-    print(f"Pass TDs: {player_proj.get('pass_td')}")
+    print(f"Projected PPR Points: {player_proj.get('pts_ppr')}")
+    print(f"Projected Passing Yards: {player_proj.get('pass_yd')}")
+    print(f"Projected Pass TDs: {player_proj.get('pass_td')}")
 
 # Option 3: Bulk fetch projections for multiple weeks
 season_projections = projections_endpoint.get_season_projections(
@@ -134,20 +137,24 @@ mahomes_season = projections_endpoint.get_player_season_projections(
 )
 for week, proj in mahomes_season.items():
     if proj:
-        print(f"Week {week}: {proj.get('pts_ppr')} PPR points")
+        print(f"Week {week}: {proj.get('pts_ppr')} projected PPR points")
 
-# Detect league scoring type
-scoring_type = projections_endpoint.get_scoring_type(league_id)
-
-# Calculate team projection
+# Get actual points scored (after games are played)
 matchups = league_endpoint.get_matchups(league_id, nfl_state.week, convert_results=True)
+for matchup in matchups:
+    print(f"Roster {matchup.roster_id}: {matchup.points:.1f} actual points scored")
+
+# Compare projections vs actuals
+scoring_type = projections_endpoint.get_scoring_type(league_id)
 for matchup in matchups:
     projected = projections_endpoint.calculate_team_projection(
         starters=matchup.starters,
         projections=projections,
         scoring_type=scoring_type
     )
-    print(f"Roster {matchup.roster_id}: {matchup.points:.1f} actual, {projected:.1f} projected")
+    actual = matchup.points
+    diff = actual - projected
+    print(f"Roster {matchup.roster_id}: {actual:.1f} actual vs {projected:.1f} projected (diff: {diff:+.1f})")
 ```
 
 ### Example Scripts

@@ -53,16 +53,25 @@ class ProjectionsEndpoint:
             - Individual stat projections (passing_yards, rushing_yards, etc.)
 
         Note:
+            This endpoint returns PROJECTIONS (pre-game predictions), not actuals.
+            For actual stats after games are played, use LeagueEndpoint.get_matchups()
+            which returns MatchupModel with actual points scored.
+
             This returns ALL projection data from the Sleeper API.
             Use get_player_projection() to fetch a single player.
             Returns empty dict on failure for graceful degradation.
 
         Example:
+            >>> # Get projections (pre-game)
             >>> projections = endpoint.get_projections(2024, 1)
             >>> player_data = projections.get("player_id")
             >>> if player_data:
-            >>>     print(f"PPR: {player_data.get('pts_ppr')}")
-            >>>     print(f"Pass Yards: {player_data.get('pass_yd')}")
+            >>>     print(f"Projected PPR: {player_data.get('pts_ppr')}")
+            >>>
+            >>> # Get actuals (post-game)
+            >>> matchups = league_endpoint.get_matchups(league_id, 1)
+            >>> for matchup in matchups:
+            >>>     print(f"Actual points: {matchup.points}")
         """
         cache_key = f"projections:{season}:{week}"
 
