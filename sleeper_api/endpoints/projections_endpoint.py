@@ -54,8 +54,14 @@ class ProjectionsEndpoint:
 
         Note:
             This endpoint returns PROJECTIONS (pre-game predictions), not actuals.
-            For actual stats after games are played, use LeagueEndpoint.get_matchups()
-            which returns MatchupModel with actual points scored.
+
+            For actual fantasy points after games are played:
+            - Use LeagueEndpoint.get_matchups(league_id, week)
+            - Returns MatchupModel with actual points in matchup.points field
+            - Only includes players rostered in that specific league
+
+            For league-agnostic actual NFL stats (all players), use external APIs:
+            - ESPN API, NFL.com API, SportRadar, etc.
 
             This returns ALL projection data from the Sleeper API.
             Use get_player_projection() to fetch a single player.

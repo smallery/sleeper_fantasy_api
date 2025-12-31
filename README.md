@@ -88,7 +88,10 @@ print(f"League: {league.name}")
 
 Access weekly player projections and calculate team totals:
 
-**Important**: The projections endpoint returns **pre-game predictions**, not actual stats. For actual points scored after games are played, use the matchups endpoint: `league_endpoint.get_matchups(league_id, week)`.
+**Important**:
+- **Projections** (this endpoint) = Pre-game predictions for ALL players
+- **Actuals** (matchups endpoint) = Post-game results for ROSTERED players only in a specific league
+- For league-agnostic actual stats, use external APIs (ESPN, NFL.com, etc.)
 
 ```python
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
