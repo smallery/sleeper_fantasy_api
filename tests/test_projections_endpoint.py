@@ -50,7 +50,7 @@ class TestProjectionsEndpoint:
         # Assert
         assert result == api_data
         mock_client.get.assert_called_once_with("projections/nfl/regular/2024/1")
-        mock_cache.set.assert_called_once_with("projections:2024:1", api_data, ttl_hours=1.0)
+        mock_cache.set.assert_called_once_with("projections:2024:1", api_data, ttl_hours=24.0)
 
     def test_get_projections_graceful_degradation(self, projections_endpoint, mock_client, mock_cache):
         """Test that failed projection fetch returns empty dict."""

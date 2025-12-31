@@ -32,7 +32,7 @@ class ProjectionsEndpoint:
             persistent_cache: Optional PersistentCache instance for caching projections.
         """
         self.client = client
-        self.persistent_cache = persistent_cache or PersistentCache(default_ttl_hours=1.0)
+        self.persistent_cache = persistent_cache or PersistentCache(default_ttl_hours=24.0)
 
     def get_projections(self, season: int, week: int) -> Dict[str, Dict]:
         """
@@ -78,8 +78,8 @@ class ProjectionsEndpoint:
             data = self.client.get(endpoint)
 
             if data:
-                # Cache for 1 hour
-                self.persistent_cache.set(cache_key, data, ttl_hours=1.0)
+                # Cache for 24 hours
+                self.persistent_cache.set(cache_key, data, ttl_hours=24.0)
                 logger.info(f"Fetched projections for {season} week {week}")
                 return data
             else:
@@ -146,7 +146,7 @@ class ProjectionsEndpoint:
 
         Note:
             - Weeks with no data available return empty dicts
-            - Each week is cached independently (1-hour TTL)
+            - Each week is cached independently (24-hour TTL)
             - Failed weeks are logged but don't stop other weeks from fetching
 
         Example:

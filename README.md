@@ -100,7 +100,7 @@ projections_endpoint = ProjectionsEndpoint(client, persistent_cache)
 nfl_state = league_endpoint.get_nfl_state(convert_results=True)
 print(f"Season: {nfl_state.season}, Week: {nfl_state.week}")
 
-# Option 1: Fetch all player projections for one week (cached for 1 hour)
+# Option 1: Fetch all player projections for one week (cached for 24 hours)
 projections = projections_endpoint.get_projections(
     season=int(nfl_state.season),
     week=nfl_state.week
@@ -210,7 +210,7 @@ The current endpoints available through the API are the following:
     - `calculate_team_projection(starters, projections, scoring_type)` - Calculate total team projection
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
   - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
-  - Uses persistent file caching (1-hour TTL) to minimize API calls
+  - Uses persistent file caching (24-hour TTL) to minimize API calls
 
 For more details, refer to the full [Sleeper API documentation](https://docs.sleeper.com/#introduction).
 
