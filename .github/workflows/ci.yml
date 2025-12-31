@@ -94,5 +94,4 @@ jobs:
         python -c "from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint; print('✅ ProjectionsEndpoint')"
         python -c "from sleeper_api.persistent_cache import PersistentCache; print('✅ PersistentCache')"
         python -c "from sleeper_api.models.nfl_state import NFLStateModel; print('✅ NFLStateModel')"
-        python -c "from sleeper_api.models.variance import TeamVarianceModel; print('✅ TeamVarianceModel')"
         echo "✅ All imports successful!"

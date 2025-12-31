@@ -1,12 +1,11 @@
 """
-Example script demonstrating player projections and advanced features.
+Example script demonstrating player projections features.
 
 This script shows how to:
 1. Fetch player projections from Sleeper
 2. Calculate team projections
-3. Use Best Ball optimal lineup calculator
-4. Calculate team variance
-5. Get current NFL state
+3. Get current NFL state
+4. Detect league scoring type
 
 Usage:
     python examples/example_projections_usage.py -u YOUR_USERNAME
@@ -15,7 +14,6 @@ import argparse
 from sleeper_api.client import SleeperClient
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
-from sleeper_api.endpoints.player_endpoint import PlayerEndpoint
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
 from sleeper_api.persistent_cache import PersistentCache
 
@@ -40,7 +38,6 @@ def main():
     client = SleeperClient(timeout=10, max_retries=3)
     user_endpoint = UserEndpoint(client)
     league_endpoint = LeagueEndpoint(client)
-    player_endpoint = PlayerEndpoint(client)
     persistent_cache = PersistentCache()
     projections_endpoint = ProjectionsEndpoint(client, persistent_cache)
 
@@ -106,50 +103,6 @@ def main():
         print(f"Roster {matchup.roster_id}:")
         print(f"  Current Points: {matchup.points:.2f}")
         print(f"  Projected Points: {projected_points:.2f}")
-
-    # Get all players for position lookup
-    print("\nFetching all players...")
-    all_players = player_endpoint.get_all_players(sport='nfl', convert_results=False)
-    print(f"Loaded {len(all_players)} players")
-
-    # Example: Calculate optimal lineup for Best Ball (if applicable)
-    print("\nExample: Best Ball Optimal Lineup Calculation")
-    print("-" * 60)
-    if matchups:
-        example_matchup = matchups[0]
-        roster_positions = league_model.roster_positions
-
-        if example_matchup.players:  # If roster has players
-            optimal_starters, optimal_total = projections_endpoint.calculate_optimal_lineup(
-                roster_players=example_matchup.players,
-                projections=projections,
-                roster_positions=roster_positions,
-                all_players=all_players,
-                scoring_type=scoring_type
-            )
-            print(f"Roster {example_matchup.roster_id}:")
-            print(f"  Current lineup: {len(example_matchup.starters)} starters")
-            print(f"  Optimal starters: {len([s for s in optimal_starters if s])}")
-            print(f"  Optimal projected total: {optimal_total:.2f}")
-
-    # Calculate team variance through current week
-    if nfl_state.week > 1:
-        print(f"\nCalculating team variance through week {nfl_state.week - 1}...")
-        variances = league_endpoint.calculate_team_variances(
-            league_id=league_id,
-            through_week=nfl_state.week - 1
-        )
-
-        print("\nTeam Variance Analysis:")
-        print("-" * 80)
-        print(f"{'Team':<30} {'Mean':<10} {'StdDev':<10} {'Floor':<10} {'Ceiling':<10}")
-        print("-" * 80)
-        for variance in variances:
-            print(f"{variance.display_name:<30} "
-                  f"{variance.mean:<10.2f} "
-                  f"{variance.stddev:<10.2f} "
-                  f"{variance.floor:<10.2f} "
-                  f"{variance.ceiling:<10.2f}")
 
     # Show cache statistics
     print("\nCache Statistics:")

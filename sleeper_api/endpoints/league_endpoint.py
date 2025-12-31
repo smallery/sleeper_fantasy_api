@@ -14,7 +14,6 @@ from ..models.brackets import BracketModel
 from ..models.transactions import TransactionsModel
 from ..models.traded_picks import TradedPickModel
 from ..models.nfl_state import NFLStateModel
-from ..models.variance import TeamVarianceModel
 from .user_endpoint import UserEndpoint
 from ..config import CONVERT_RESULTS
 from ..exceptions import SleeperAPIError
@@ -197,71 +196,3 @@ class LeagueEndpoint:
             return state_data
 
         return NFLStateModel.from_dict(state_data)
-
-    def calculate_team_variances(
-        self,
-        league_id: str,
-        through_week: int,
-        current_week_projections: Dict[int, float] = None
-    ) -> List[TeamVarianceModel]:
-        """
-        Calculate historical scoring variance for all teams in a league.
-
-        Fetches all weekly scores through the specified week and calculates
-        variance metrics (mean, stddev, floor, ceiling) for each team.
-
-        Args:
-            league_id: The league ID.
-            through_week: The week to calculate variance through.
-            current_week_projections: Optional dict of roster_id -> projected points.
-
-        Returns:
-            List of TeamVarianceModel objects for each team in the league.
-        """
-        current_week_projections = current_week_projections or {}
-
-        # Get rosters and users for team info
-        rosters = self.get_rosters(league_id, convert_results=True)
-        users = self.get_users(league_id, convert_results=True)
-
-        # Build roster to user mapping
-        user_by_id = {user.user_id: user for user in users}
-        roster_map = {}
-        for roster in rosters:
-            user = user_by_id.get(roster.owner_id)
-            roster_map[roster.roster_id] = {
-                'display_name': user.display_name if user else f"Team {roster.roster_id}",
-                'team_name': (user.metadata.get('team_name') if user and hasattr(user, 'metadata')
-                             else user.display_name if user else f"Team {roster.roster_id}")
-            }
-
-        # Build weekly scores for each roster
-        roster_scores: Dict[int, List[float]] = {}
-        for roster in rosters:
-            roster_scores[roster.roster_id] = []
-
-        # Fetch matchups for each week
-        for week in range(1, through_week + 1):
-            try:
-                matchups = self.get_matchups(league_id, week, convert_results=True)
-                for matchup in matchups:
-                    if matchup.roster_id in roster_scores and matchup.points > 0:
-                        roster_scores[matchup.roster_id].append(matchup.points)
-            except SleeperAPIError:
-                # Skip weeks that don't exist or failed to fetch
-                continue
-
-        # Calculate variance for each team
-        variances: List[TeamVarianceModel] = []
-        for roster in rosters:
-            team_info = roster_map.get(roster.roster_id, {})
-            variance = TeamVarianceModel.from_weekly_scores(
-                roster_id=roster.roster_id,
-                display_name=team_info.get('display_name', f"Team {roster.roster_id}"),
-                team_name=team_info.get('team_name', f"Team {roster.roster_id}"),
-                weekly_scores=roster_scores.get(roster.roster_id, []),
-                projection=current_week_projections.get(roster.roster_id, 0.0),
-            )
-            variances.append(variance)
-
-        return variances
