@@ -100,7 +100,7 @@ projections_endpoint = ProjectionsEndpoint(client, persistent_cache)
 nfl_state = league_endpoint.get_nfl_state(convert_results=True)
 print(f"Season: {nfl_state.season}, Week: {nfl_state.week}")
 
-# Option 1: Fetch all player projections for the week (cached for 1 hour)
+# Option 1: Fetch all player projections for one week (cached for 1 hour)
 projections = projections_endpoint.get_projections(
     season=int(nfl_state.season),
     week=nfl_state.week
@@ -118,6 +118,23 @@ if player_proj:
     print(f"PPR Points: {player_proj.get('pts_ppr')}")
     print(f"Passing Yards: {player_proj.get('pass_yd')}")
     print(f"Pass TDs: {player_proj.get('pass_td')}")
+
+# Option 3: Bulk fetch projections for multiple weeks
+season_projections = projections_endpoint.get_season_projections(
+    season=2024,
+    weeks=[1, 2, 3, 4]  # Or None for all 18 weeks
+)
+# Returns: {1: {players...}, 2: {players...}, 3: {players...}, 4: {players...}}
+
+# Option 4: Track one player across multiple weeks
+mahomes_season = projections_endpoint.get_player_season_projections(
+    player_id="4018",
+    season=2024,
+    weeks=[1, 2, 3, 4]  # Or None for all 18 weeks
+)
+for week, proj in mahomes_season.items():
+    if proj:
+        print(f"Week {week}: {proj.get('pts_ppr')} PPR points")
 
 # Detect league scoring type
 scoring_type = projections_endpoint.get_scoring_type(league_id)
@@ -186,8 +203,10 @@ The current endpoints available through the API are the following:
 - **Projections Endpoint**:
   - `projections_endpoint`: Access weekly player projections from Sleeper
   - **Methods**:
-    - `get_projections(season, week)` - Fetch all player projections for a week (returns full projection data)
-    - `get_player_projection(player_id, season, week)` - Fetch single player projection (convenience method)
+    - `get_projections(season, week)` - Fetch all player projections for one week
+    - `get_player_projection(player_id, season, week)` - Fetch single player projection for one week
+    - `get_season_projections(season, weeks=None)` - Bulk fetch projections across multiple weeks (or all 18 weeks)
+    - `get_player_season_projections(player_id, season, weeks=None)` - Track one player across multiple weeks
     - `calculate_team_projection(starters, projections, scoring_type)` - Calculate total team projection
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
   - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
