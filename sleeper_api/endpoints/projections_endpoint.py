@@ -11,6 +11,9 @@ from ..exceptions import SleeperAPIError
 
 logger = logging.getLogger(__name__)
 
+# NFL regular season has 18 weeks
+NFL_REGULAR_SEASON_WEEKS = 18
+
 
 class ProjectionsEndpoint:
     """
@@ -121,6 +124,92 @@ class ProjectionsEndpoint:
         """
         projections = self.get_projections(season, week)
         return projections.get(player_id)
+
+    def get_season_projections(
+        self,
+        season: int,
+        weeks: Optional[List[int]] = None
+    ) -> Dict[int, Dict[str, Dict]]:
+        """
+        Fetch player projections for multiple weeks in a season.
+
+        This is a convenience method for bulk-fetching projection data.
+        Each week's data is fetched separately and cached independently.
+
+        Args:
+            season: NFL season year (e.g., 2024).
+            weeks: List of week numbers to fetch. If None, fetches all 18 regular season weeks.
+
+        Returns:
+            Dict mapping week number -> projections dict.
+            Example: {1: {"player1": {...}}, 2: {"player1": {...}}, ...}
+
+        Note:
+            - Weeks with no data available return empty dicts
+            - Each week is cached independently (1-hour TTL)
+            - Failed weeks are logged but don't stop other weeks from fetching
+
+        Example:
+            >>> # Fetch first 4 weeks
+            >>> projections = endpoint.get_season_projections(2024, weeks=[1, 2, 3, 4])
+            >>> week_1 = projections[1]
+            >>>
+            >>> # Fetch entire season
+            >>> all_projections = endpoint.get_season_projections(2024)
+        """
+        if weeks is None:
+            weeks = list(range(1, NFL_REGULAR_SEASON_WEEKS + 1))
+
+        season_data = {}
+        for week in weeks:
+            try:
+                projections = self.get_projections(season, week)
+                season_data[week] = projections
+                if projections:
+                    logger.debug(f"Fetched {len(projections)} players for week {week}")
+                else:
+                    logger.warning(f"No projection data for week {week}")
+            except Exception as e:
+                logger.error(f"Failed to fetch projections for week {week}: {e}")
+                season_data[week] = {}
+
+        return season_data
+
+    def get_player_season_projections(
+        self,
+        player_id: str,
+        season: int,
+        weeks: Optional[List[int]] = None
+    ) -> Dict[int, Optional[Dict]]:
+        """
+        Fetch projections for a single player across multiple weeks.
+
+        This is a convenience method for tracking one player's projections
+        over time. Uses cached data from get_season_projections().
+
+        Args:
+            player_id: Sleeper player ID.
+            season: NFL season year (e.g., 2024).
+            weeks: List of week numbers to fetch. If None, fetches all 18 weeks.
+
+        Returns:
+            Dict mapping week number -> player projection data (or None if not found).
+            Example: {1: {"pts_ppr": 15.5, ...}, 2: {"pts_ppr": 12.0, ...}}
+
+        Example:
+            >>> # Track QB across season
+            >>> mahomes = endpoint.get_player_season_projections("4018", 2024)
+            >>> for week, proj in mahomes.items():
+            >>>     if proj:
+            >>>         print(f"Week {week}: {proj.get('pts_ppr')} PPR points")
+        """
+        season_data = self.get_season_projections(season, weeks)
+
+        player_data = {}
+        for week, projections in season_data.items():
+            player_data[week] = projections.get(player_id)
+
+        return player_data
 
     def get_scoring_type(self, league_id: str) -> str:
         """
