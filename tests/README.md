@@ -19,7 +19,6 @@ Tests for data models representing Sleeper API objects:
 - `test_model_traded_picks.py` - Traded draft picks
 - `test_model_transactions.py` - League transactions
 - `test_model_user.py` - User information
-- `test_model_variance.py` - **NEW**: Team scoring variance
 
 ### Endpoint Tests (`test_endpoint_*.py`)
 Tests for API endpoint wrappers:

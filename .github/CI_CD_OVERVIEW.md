@@ -27,7 +27,7 @@ This document provides an overview of the continuous integration and continuous 
 3. **imports**: Module import validation
    - Installs package in development mode
    - Verifies all new modules can be imported successfully
-   - Tests: Client, ProjectionsEndpoint, PersistentCache, NFLStateModel, TeamVarianceModel
+   - Tests: Client, ProjectionsEndpoint, PersistentCache, NFLStateModel
 
 **Total Checks**: 5 (3 test jobs + 1 lint + 1 import)
 

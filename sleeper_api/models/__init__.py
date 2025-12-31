@@ -8,7 +8,6 @@ from .traded_picks import TradedPickModel
 from .transactions import TransactionsModel
 from .user import UserModel
 from .nfl_state import NFLStateModel
-from .variance import TeamVarianceModel
 
 __all__ = [
     "BracketModel",
@@ -20,6 +19,5 @@ __all__ = [
     "TradedPickModel",
     "TransactionsModel",
     "UserModel",
-    "NFLStateModel",
-    "TeamVarianceModel"
+    "NFLStateModel"
 ]
