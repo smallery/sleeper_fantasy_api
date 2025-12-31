@@ -33,9 +33,9 @@ class ProjectionsEndpoint:
 
     def get_projections(self, season: int, week: int) -> Dict[str, Dict]:
         """
-        Fetch player projections for a specific week.
+        Fetch all player projections for a specific week.
 
-        Uses an undocumented Sleeper endpoint to get projected points.
+        Uses an undocumented Sleeper endpoint to get projected stats.
         Results are cached in persistent file storage to minimize API calls.
 
         Args:
@@ -47,10 +47,19 @@ class ProjectionsEndpoint:
             - pts_std: Standard scoring projected points
             - pts_half_ppr: Half-PPR projected points
             - pts_ppr: Full PPR projected points
+            - Individual stat projections (passing_yards, rushing_yards, etc.)
 
         Note:
-            This uses an undocumented Sleeper endpoint that may change.
+            This returns ALL projection data from the Sleeper API.
+            Use get_player_projection() to fetch a single player.
             Returns empty dict on failure for graceful degradation.
+
+        Example:
+            >>> projections = endpoint.get_projections(2024, 1)
+            >>> player_data = projections.get("player_id")
+            >>> if player_data:
+            >>>     print(f"PPR: {player_data.get('pts_ppr')}")
+            >>>     print(f"Pass Yards: {player_data.get('pass_yd')}")
         """
         cache_key = f"projections:{season}:{week}"
 
@@ -77,6 +86,41 @@ class ProjectionsEndpoint:
         except SleeperAPIError as e:
             logger.warning(f"Failed to fetch projections: {e}")
             return {}  # Graceful degradation
+
+    def get_player_projection(
+        self,
+        player_id: str,
+        season: int,
+        week: int
+    ) -> Optional[Dict]:
+        """
+        Fetch projection data for a single player.
+
+        This is a convenience method that fetches all projections for the week
+        (using cache) and returns just the specified player's data.
+
+        Args:
+            player_id: Sleeper player ID.
+            season: NFL season year (e.g., 2024).
+            week: Week number (1-18).
+
+        Returns:
+            Dict with projection stats for the player, or None if not found.
+            Includes all available fields such as:
+            - pts_std, pts_half_ppr, pts_ppr (projected points)
+            - pass_yd, pass_td, pass_int (passing stats)
+            - rush_yd, rush_td (rushing stats)
+            - rec, rec_yd, rec_td (receiving stats)
+            - And other stat projections
+
+        Example:
+            >>> proj = endpoint.get_player_projection("4018", 2024, 1)
+            >>> if proj:
+            >>>     print(f"PPR Points: {proj.get('pts_ppr')}")
+            >>>     print(f"Receptions: {proj.get('rec')}")
+        """
+        projections = self.get_projections(season, week)
+        return projections.get(player_id)
 
     def get_scoring_type(self, league_id: str) -> str:
         """

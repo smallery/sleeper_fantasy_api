@@ -138,3 +138,48 @@ class TestProjectionsEndpoint:
 
         # Assert
         assert result == 24.2  # Only counts player1 and player3
+
+    def test_get_player_projection_found(self, projections_endpoint, mock_client, mock_cache):
+        """Test getting projection for a single player."""
+        # Arrange
+        mock_cache.get.return_value = None
+        api_data = {
+            "player1": {"pts_ppr": 15.5, "rec": 5, "rec_yd": 60},
+            "player2": {"pts_ppr": 12.0, "rush_yd": 80}
+        }
+        mock_client.get.return_value = api_data
+
+        # Act
+        result = projections_endpoint.get_player_projection("player1", 2024, 1)
+
+        # Assert
+        assert result == {"pts_ppr": 15.5, "rec": 5, "rec_yd": 60}
+
+    def test_get_player_projection_not_found(self, projections_endpoint, mock_client, mock_cache):
+        """Test getting projection for player not in dataset."""
+        # Arrange
+        mock_cache.get.return_value = None
+        api_data = {"player1": {"pts_ppr": 15.5}}
+        mock_client.get.return_value = api_data
+
+        # Act
+        result = projections_endpoint.get_player_projection("player999", 2024, 1)
+
+        # Assert
+        assert result is None
+
+    def test_get_player_projection_uses_cache(self, projections_endpoint, mock_cache):
+        """Test that get_player_projection uses cached data."""
+        # Arrange
+        cached_data = {
+            "player1": {"pts_ppr": 15.5, "pass_yd": 300},
+            "player2": {"pts_ppr": 10.0}
+        }
+        mock_cache.get.return_value = cached_data
+
+        # Act
+        result = projections_endpoint.get_player_projection("player1", 2024, 1)
+
+        # Assert
+        assert result == {"pts_ppr": 15.5, "pass_yd": 300}
+        mock_cache.get.assert_called_once_with("projections:2024:1")

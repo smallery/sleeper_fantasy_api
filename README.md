@@ -100,11 +100,24 @@ projections_endpoint = ProjectionsEndpoint(client, persistent_cache)
 nfl_state = league_endpoint.get_nfl_state(convert_results=True)
 print(f"Season: {nfl_state.season}, Week: {nfl_state.week}")
 
-# Fetch player projections for current week
+# Option 1: Fetch all player projections for the week (cached for 1 hour)
 projections = projections_endpoint.get_projections(
     season=int(nfl_state.season),
     week=nfl_state.week
 )
+# Returns ALL projection data from Sleeper API
+# Includes: pts_ppr, pts_half_ppr, pts_std, pass_yd, rush_yd, rec, etc.
+
+# Option 2: Get projection for a single player (uses cache)
+player_proj = projections_endpoint.get_player_projection(
+    player_id="4018",  # Patrick Mahomes
+    season=int(nfl_state.season),
+    week=nfl_state.week
+)
+if player_proj:
+    print(f"PPR Points: {player_proj.get('pts_ppr')}")
+    print(f"Passing Yards: {player_proj.get('pass_yd')}")
+    print(f"Pass TDs: {player_proj.get('pass_td')}")
 
 # Detect league scoring type
 scoring_type = projections_endpoint.get_scoring_type(league_id)
@@ -173,11 +186,12 @@ The current endpoints available through the API are the following:
 - **Projections Endpoint**:
   - `projections_endpoint`: Access weekly player projections from Sleeper
   - **Methods**:
-    - `get_projections(season, week)` - Fetch all player projections for a specific week
+    - `get_projections(season, week)` - Fetch all player projections for a week (returns full projection data)
+    - `get_player_projection(player_id, season, week)` - Fetch single player projection (convenience method)
     - `calculate_team_projection(starters, projections, scoring_type)` - Calculate total team projection
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
+  - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
   - Uses persistent file caching (1-hour TTL) to minimize API calls
-  - Supports PPR, Half-PPR, and Standard scoring formats
 
 For more details, refer to the full [Sleeper API documentation](https://docs.sleeper.com/#introduction).
 
