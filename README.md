@@ -1,7 +1,6 @@
 # sleeper_fantasy_api
 
 [![CI](https://github.com/smallery/sleeper_fantasy_api/workflows/CI/badge.svg)](https://github.com/smallery/sleeper_fantasy_api/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/smallery/sleeper_fantasy_api/branch/main/graph/badge.svg)](https://codecov.io/gh/smallery/sleeper_fantasy_api)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -184,28 +183,16 @@ For more details, refer to the full [Sleeper API documentation](https://docs.sle
 
 ## Contributing
 
-Contributions are welcome! We have comprehensive CI/CD in place to ensure code quality.
-
-### Quick Start for Contributors
+Contributions are welcome! To contribute:
 
 1. Fork the repository
-2. Create a new branch (`git checkout -b githubUsername/feature-branch`)
-3. Install dev dependencies: `pip install -r requirements-dev.txt`
-4. Make your changes and add tests
-5. Run tests: `pytest --cov=sleeper_api`
-6. Format code: `black sleeper_api tests examples`
-7. Submit a pull request
+2. Create a new branch: `git checkout -b yourname/feature-name`
+3. Make your changes and add tests
+4. Run tests: `pytest`
+5. Format code: `flake8 sleeper_api`
+6. Submit a pull request
 
-### CI/CD Checks
-
-All pull requests automatically run **5 efficient checks** in parallel:
-- ✅ Tests on Python 3.10, 3.11, 3.12 (3 jobs)
-- ✅ Code quality with flake8 (1 job)
-- ✅ Import validation (1 job)
-- ✅ Coverage reporting to Codecov
-- ⚡ Fast execution with pip caching
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+All PRs automatically run tests on Python 3.10, 3.11, and 3.12.
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more information.
