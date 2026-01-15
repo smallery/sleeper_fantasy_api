@@ -9,6 +9,8 @@ from .endpoints.user_endpoint import UserEndpoint
 from .endpoints.league_endpoint import LeagueEndpoint
 from .endpoints.draft_endpoint import DraftEndpoint
 from .endpoints.player_endpoint import PlayerEndpoint
+from .endpoints.projections_endpoint import ProjectionsEndpoint
+from .endpoints.nfl_endpoint import NFLEndpoint
 
 # Import specific data models
 from .models.brackets import BracketModel
@@ -21,6 +23,8 @@ from .models.roster import RosterModel
 from .models.traded_picks import TradedPickModel
 from .models.transactions import TransactionsModel
 from .models.user import UserModel
+from .models.team_depth_chart import TeamDepthChartModel
+from .models.schedule import NFLScheduleModel, ScheduleGameModel
 
 # Import any exceptions you want to expose
 from .exceptions import SleeperAPIError, UserNotFoundError
@@ -32,6 +36,8 @@ __all__ = [
     "LeagueEndpoint",
     "DraftEndpoint",
     "PlayerEndpoint",
+    "ProjectionsEndpoint",
+    "NFLEndpoint",
     "BracketModel",
     "DraftModel",
     "LeagueModel",
@@ -42,8 +48,11 @@ __all__ = [
     "TradedPickModel",
     "TransactionsModel",
     "UserModel",
+    "TeamDepthChartModel",
+    "NFLScheduleModel",
+    "ScheduleGameModel",
     "SleeperAPIError",
     "UserNotFoundError",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

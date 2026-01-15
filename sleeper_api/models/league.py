@@ -1,6 +1,43 @@
 from typing import Dict, List, Optional, Any
 
 class LeagueModel:
+    """
+    Represents a Sleeper fantasy league.
+
+    Attributes:
+        league_id: Unique league identifier (str)
+        name: League name (str)
+        status: League status - 'pre_draft', 'drafting', 'in_season', 'complete' (str)
+        sport: Sport type, typically 'nfl' (str)
+        season: Season year (str, e.g., '2023')
+        season_type: Season type - 'regular', 'post' (str)
+        total_rosters: Number of teams in the league (int)
+        roster_positions: List of roster position slots (List[str])
+            Example: ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'K', 'DEF', 'BN', ...]
+        settings: League settings (Dict[str, int])
+            Common keys: playoff_week_start, num_teams, playoff_teams, waiver_type, etc.
+        scoring_settings: Scoring configuration (Dict[str, float])
+            Keys are stat abbreviations (e.g., 'pass_td', 'rec', 'rush_yd') with point values
+        metadata: Additional league metadata (Dict[str, str], optional)
+        avatar: League avatar ID (str, optional)
+        draft_id: Associated draft ID (str, optional)
+        bracket_id: Playoff bracket ID (int, optional)
+        loser_bracket_id: Loser/consolation bracket ID (int, optional)
+        group_id: League group ID (str, optional)
+        last_message_id: Most recent message ID in league chat (str, optional)
+        last_author_id: User ID of last message author (str, optional)
+        last_author_display_name: Display name of last message author (str, optional)
+        last_author_avatar: Avatar of last message author (str, optional)
+        last_message_time: Unix timestamp of last message (int, optional)
+        last_transaction_id: Most recent transaction ID (str, optional)
+        previous_league_id: League ID from previous season if renewed (str, optional)
+
+    Example:
+        >>> league = LeagueModel.from_dict(league_data)
+        >>> print(f"League: {league.name} ({league.season})")
+        >>> print(f"Status: {league.status}, Teams: {league.total_rosters}")
+        >>> print(f"Roster: {league.roster_positions}")
+    """
     def __init__(
         self,
         league_id: str,
