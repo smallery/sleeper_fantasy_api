@@ -35,6 +35,8 @@ This project simplifies accessing the Sleeper API, allowing users to easily fetc
 
 ### Advanced Features (New!)
 - **Player Projections**: Access weekly player projections (undocumented Sleeper API endpoint)
+- **NFL Data**: Team depth charts and historical schedules (undocumented Sleeper API endpoints)
+- **Complete League Data**: One-call convenience method to fetch league, rosters, and users together
 - **Persistent Caching**: File-based caching system for expensive API calls
 - **Retry Logic**: Exponential backoff for rate limits and network errors
 - **NFL State**: Get current NFL season, week, and game state
@@ -160,6 +162,78 @@ for matchup in matchups:
     print(f"Roster {matchup.roster_id}: {actual:.1f} actual vs {projected:.1f} projected (diff: {diff:+.1f})")
 ```
 
+### NFL Data: Team Depth Charts & Schedules
+
+Access NFL team depth charts and historical schedules:
+
+```python
+from sleeper_api import SleeperClient, NFLEndpoint
+
+client = SleeperClient()
+nfl_endpoint = NFLEndpoint(client)
+
+# Get team depth chart
+depth_chart = nfl_endpoint.get_team_depth_chart('SF')
+print(f"49ers Starting QB: {depth_chart.qb[0]}")  # First QB in depth chart
+print(f"All RBs: {depth_chart.rb}")  # All RBs in depth order
+
+# Get all starters
+starters = depth_chart.get_starters()
+print(f"Starting QB: {starters['QB']}")
+print(f"Starting RBs: {starters['RB']}")
+
+# Get NFL schedule (supports 2009-present)
+schedule = nfl_endpoint.get_schedule(2024, postseason=False)
+print(f"Total games in 2024: {len(schedule.games)}")
+
+# Get games for a specific week
+week_1_games = schedule.get_games_by_week(1)
+for game in week_1_games:
+    print(f"Week {game.week}: {game.away} @ {game.home} ({game.date})")
+
+# Get all games for a specific team
+sf_games = schedule.get_games_by_team('SF')
+print(f"49ers have {len(sf_games)} games this season")
+
+# Get postseason schedule
+playoffs = nfl_endpoint.get_postseason_schedule(2024)
+print(f"Playoff games: {len(playoffs.games)}")
+```
+
+### Complete League Data (Convenience Method)
+
+Fetch league, rosters, and users in a single call:
+
+```python
+from sleeper_api import SleeperClient, LeagueEndpoint
+
+client = SleeperClient()
+league_endpoint = LeagueEndpoint(client)
+
+# Get everything at once
+data = league_endpoint.get_complete_league_data('123456789')
+
+# Access league info
+league = data['league']
+print(f"League: {league.name} ({league.season})")
+print(f"Status: {league.status}")
+
+# Access rosters
+rosters = data['rosters']
+print(f"Teams: {len(rosters)}")
+
+# Access users
+users = data['users']
+for user in users:
+    print(f"User: {user.display_name}")
+
+# Quick roster-to-user lookup
+roster_to_user = data['roster_to_user']
+owner_id = roster_to_user[1]  # Get owner of roster 1
+owner = next(u for u in users if u.user_id == owner_id)
+print(f"Roster 1 owner: {owner.display_name}")
+```
+
 ### Example Scripts
 
 Run the included example scripts from the command line:
@@ -197,6 +271,7 @@ The current endpoints available through the API are the following:
 - **League Endpoint**:
   - `league_endpoint`: Retrieve information on leagues with a given league_id
   - Get rosters, users, matchups, brackets, transactions, and traded picks
+  - **NEW**: `get_complete_league_data(league_id)` - Fetch league, rosters, and users in one call
   - **NEW**: `get_nfl_state()` - Get current NFL season/week information
 
 - **Player Endpoint**:
@@ -221,6 +296,16 @@ The current endpoints available through the API are the following:
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
   - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
   - Uses persistent file caching (24-hour TTL) to minimize API calls
+
+- **NFL Endpoint**:
+  - `nfl_endpoint`: Access NFL-specific data (undocumented Sleeper API endpoints)
+  - **Methods**:
+    - `get_team_depth_chart(team)` - Fetch current depth chart for any NFL team
+    - `get_schedule(year, postseason=False)` - Get NFL schedule (regular season or playoffs, 2009-present)
+    - `get_regular_season_schedule(year)` - Convenience method for regular season
+    - `get_postseason_schedule(year)` - Convenience method for playoffs
+  - Returns models with helper methods: `get_games_by_week()`, `get_games_by_team()`, `get_starters()`
+  - Note: These endpoints are undocumented and may change without notice
 
 For more details, refer to the full [Sleeper API documentation](https://docs.sleeper.com/#introduction).
 

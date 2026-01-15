@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-01-15
+
+### Added
+- **NFL Endpoint** - New endpoint for undocumented NFL-specific Sleeper API features
+  - `get_team_depth_chart(team)` - Fetch depth chart for any NFL team
+  - `get_schedule(year, postseason)` - Get NFL schedule (regular season or playoffs)
+  - `get_regular_season_schedule(year)` - Convenience method for regular season
+  - `get_postseason_schedule(year)` - Convenience method for playoffs
+  - Supports schedule data from 2009 to present
+- **League Endpoint Enhancement** - Convenience method for common use case
+  - `get_complete_league_data(league_id)` - Fetch league, rosters, and users in one call
+  - Returns dict with league, rosters, users, and roster_to_user mapping
+  - Simplifies common pattern of fetching all league data at once
+- **New Models**:
+  - `TeamDepthChartModel` - NFL team depth charts with all position groups
+  - `NFLScheduleModel` - Complete season schedule with helper methods
+  - `ScheduleGameModel` - Individual game data (teams, date, status, week)
+- **Enhanced Documentation**:
+  - Added comprehensive docstrings to `UserModel`, `LeagueModel`, `RosterModel`, `MatchupModel`
+  - All model classes now document attributes, types, and usage examples
+  - Better IDE autocomplete and type hinting support
+  - Created `docs/NFL_ENDPOINT.md` with complete API reference and examples
+  - Created `AGENT.md` for transparency about AI-assisted development
+  - Created `CLAUDE.md` with technical details of development process
+
+### Fixed
+- **Public API Export** - `ProjectionsEndpoint` now properly exported from main package
+  - Can now use `from sleeper_api import ProjectionsEndpoint` (was previously requiring internal import path)
+  - Consistent with other endpoint exports
+
+### Notes
+**Implemented Enhancement Requests**:
+- ✅ Export ProjectionsEndpoint in public API
+- ✅ Add comprehensive model documentation
+- ✅ Complete league data convenience method - Reconsidered and implemented per user request
+
+**Enhancement Requests Evaluated and Declined**:
+The following requests were evaluated but declined as they fall outside the scope of an API wrapper:
+- ❌ Optimal lineup calculation - business logic, not API functionality
+- ❌ Batch matchup fetching - minimal value over simple loop
+- ❌ Team variance calculation - statistical analysis, not API functionality
+
+These features belong in separate analytics/helper packages built on top of this API wrapper.
+
+**Enhancement Requests Deferred**:
+- ⏸️ Type stubs (.pyi files) - valuable but requires dedicated effort
+- ⏸️ Async support - significant architectural change, warrants separate major version
+
 ## [0.2.0] - 2025-01-02
 
 ### Added
@@ -43,5 +91,6 @@ Initial public release
 - Comprehensive test coverage
 - CI/CD with GitHub Actions
 
+[0.3.0]: https://github.com/smallery/sleeper_fantasy_api/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/smallery/sleeper_fantasy_api/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/smallery/sleeper_fantasy_api/releases/tag/v0.1.0
