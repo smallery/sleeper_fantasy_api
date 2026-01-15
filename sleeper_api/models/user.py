@@ -3,6 +3,25 @@ from datetime import datetime
 from .league import LeagueModel
 
 class UserModel:
+    """
+    Represents a Sleeper user.
+
+    Attributes:
+        username: User's unique username (str)
+        user_id: Unique user identifier (str)
+        display_name: User's display name (str)
+        avatar: Avatar image ID (str) - can be used to construct avatar URLs
+        nfl_leagues: List of LeagueModel instances for user's NFL leagues (List[LeagueModel])
+
+    Avatar URLs can be constructed as:
+        - Full size: https://sleepercdn.com/avatars/{avatar}
+        - Thumbnail: https://sleepercdn.com/avatars/thumbs/{avatar}
+
+    Example:
+        >>> user = UserModel.from_json(user_data)
+        >>> print(f"User: {user.username} ({user.display_name})")
+        >>> avatar_url = f"https://sleepercdn.com/avatars/{user.avatar}"
+    """
     def __init__(self, username: str, user_id: str, display_name: str, avatar: str):
         """
         Initialize the UserModel with the provided user data.

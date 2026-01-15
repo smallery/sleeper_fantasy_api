@@ -1,6 +1,33 @@
 from typing import List, Optional, Dict, Any
 
 class MatchupModel:
+    """
+    Represents a team's matchup data for a specific week.
+
+    Attributes:
+        matchup_id: Matchup identifier - teams with same matchup_id face each other (int)
+        roster_id: Unique roster identifier for this team (int)
+        players: List of all player IDs on the roster for this matchup (List[str])
+        starters: List of starting player IDs for this matchup (List[str])
+        points: Total points scored by starters in default scoring (float)
+        custom_points: Points in custom scoring format if applicable (float, optional)
+
+    Note:
+        - Teams in the same matchup share the same matchup_id
+        - Points are calculated based on league scoring settings
+        - To find opponent, look for another MatchupModel with same matchup_id
+        - Bye weeks will have matchup_id = 0 or null
+
+    Example:
+        >>> matchups = league_endpoint.get_matchups(league_id, week=1)
+        >>> for matchup in matchups:
+        ...     print(f"Roster {matchup.roster_id}: {matchup.points} pts")
+        ...     print(f"Starters: {matchup.starters}")
+        >>> # Find matchup pairs
+        >>> matchup_pairs = {}
+        >>> for m in matchups:
+        ...     matchup_pairs.setdefault(m.matchup_id, []).append(m)
+    """
     def __init__(
         self,
         starters: List[str],

@@ -1,6 +1,33 @@
 from typing import Dict, List, Optional, Any
 
 class RosterModel:
+    """
+    Represents a team roster in a Sleeper fantasy league.
+
+    Attributes:
+        roster_id: Unique roster identifier within the league (int)
+        owner_id: User ID of the roster owner (str)
+        league_id: League identifier (str)
+        players: List of all player IDs on the roster (List[str])
+        starters: List of starting player IDs (List[str])
+        bench: List of benched player IDs (computed from players - starters) (List[str])
+        reserve: List of player IDs on reserve/IR (List[str])
+        settings: League-specific roster settings and standings data (Dict[str, Any])
+            Common keys: wins, losses, ties, fpts (total fantasy points),
+                        fpts_against, fpts_decimal, etc.
+
+    Note:
+        - The 'starters' list is automatically filtered to only include valid player IDs
+          (removes placeholder '0' values that sometimes appear in API responses)
+        - The 'bench' list is computed as players not in starters
+
+    Example:
+        >>> roster = RosterModel.from_dict(roster_data)
+        >>> print(f"Roster {roster.roster_id} - Owner: {roster.owner_id}")
+        >>> print(f"Starters: {len(roster.starters)}, Bench: {len(roster.bench)}")
+        >>> wins = roster.settings.get('wins', 0)
+        >>> losses = roster.settings.get('losses', 0)
+    """
     def __init__(
         self,
         starters: List[str],

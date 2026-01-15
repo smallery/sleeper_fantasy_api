@@ -37,6 +37,7 @@ from .league_endpoint import LeagueEndpoint
 from .draft_endpoint import DraftEndpoint
 from .player_endpoint import PlayerEndpoint
 from .projections_endpoint import ProjectionsEndpoint
+from .nfl_endpoint import NFLEndpoint
 
 __all__ = [
     "UserEndpoint",
@@ -44,4 +45,5 @@ __all__ = [
     "DraftEndpoint",
     "PlayerEndpoint",
     "ProjectionsEndpoint",
+    "NFLEndpoint",
 ]

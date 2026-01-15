@@ -108,6 +108,48 @@ class LeagueEndpoint:
         user_endpoint = UserEndpoint(self.client)
         return [user_endpoint.get_user(user.get("user_id")) for user in users_json]
 
+    def get_complete_league_data(self, league_id: str):
+        """
+        Fetch league info, rosters, and users in one convenient call.
+
+        This is a convenience method that combines three separate API calls:
+        - get_league_by_id() for league details
+        - get_rosters() for all rosters
+        - get_users() for all users
+
+        Returns:
+            Dict with keys:
+                - league: LeagueModel instance
+                - rosters: List of RosterModel instances
+                - users: List of UserModel instances
+                - roster_to_user: Dict mapping roster_id -> user_id for quick lookups
+
+        Example:
+            >>> league_endpoint = LeagueEndpoint(client)
+            >>> data = league_endpoint.get_complete_league_data('123456789')
+            >>> print(f"League: {data['league'].name}")
+            >>> print(f"Teams: {len(data['rosters'])}")
+            >>> # Find owner of roster 1
+            >>> owner_id = data['roster_to_user'][1]
+            >>> owner = next(u for u in data['users'] if u.user_id == owner_id)
+        """
+        # Fetch all data
+        league = self.get_league_by_id(league_id)
+        rosters = self.get_rosters(league_id, convert_results=True)
+        users = self.get_users(league_id, convert_results=True)
+
+        # Build convenience mapping
+        roster_to_user = {}
+        for roster in rosters:
+            roster_to_user[roster.roster_id] = roster.owner_id
+
+        return {
+            'league': league,
+            'rosters': rosters,
+            'users': users,
+            'roster_to_user': roster_to_user
+        }
+
     def get_matchups(
             self, league_id: str, week: int,
             convert_results = CONVERT_RESULTS
