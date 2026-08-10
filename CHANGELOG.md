@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-08-10
+
+### Changed
+- **Dependencies are no longer exact pins** (the headline fix of this release).
+  `0.3.0` shipped `platformdirs==3.8.1`, `requests==2.31.0`, and `pytest==8.2.2`
+  as `==` pins. Because pip applies a library's constraints to the whole
+  resolution, every consuming application inherited them and could not move off
+  them. Real consequences reported downstream:
+  - `requests` could not be upgraded past 2.31.0, holding applications on a
+    release with 3 known CVEs (including CVE-2024-35195, fixed in 2.32.0) with
+    no newer version of this package to bump to.
+  - `pip-audit` could not be installed at all in the same environment, since it
+    requires `platformdirs>=4.2.0`.
+  - Applications were held to `pytest` 8.2.2 and to releases predating Python 3.13.
+
+  Now declared as `platformdirs>=4.2.0,<5` and `requests>=2.32.0,<3`.
+
+- **`pytest` is no longer a runtime dependency.** It was listed under
+  `[project.dependencies]`, so installing this package installed a test
+  framework and constrained the consumer's own test suite. Nothing in
+  `sleeper_api` imports it. It now lives in the `dev` extra:
+  `pip install "sleeper_fantasy_api[dev]"`.
+
+- **Single retry layer in `SleeperClient`.** The session mounted an
+  `HTTPAdapter` carrying a urllib3 `Retry(total=3)` *and* `_request` ran its own
+  retry loop, so the two multiplied: one outage could cost up to
+  `(max_retries + 1) x 4` requests with both backoff schedules stacked. Retry is
+  now handled solely by `_request`, which covers rate limits (429), transient
+  server errors (500/502/503/504), and transport exceptions with the documented
+  exponential backoff. The adapter is mounted with `max_retries=0`.
+
+- Connection pool widened (`pool_maxsize=20`) so concurrent fetches are not
+  serialized on connection checkout.
+
+### Added
+- **`max_workers` on `get_season_projections()` and
+  `get_player_season_projections()`.** Fetching a run of weeks one at a time is
+  a series of multi-megabyte round trips, slow enough to exceed a typical HTTP
+  request timeout. Passing `max_workers` fans the weeks out over a thread pool
+  (capped at 8); results are identical and key order is preserved.
+  Defaults to `1`, so existing behavior is unchanged unless opted into.
+
+  ```python
+  projections = endpoint.get_season_projections(
+      2025, weeks=list(range(10, 19)), max_workers=8
+  )
+  ```
+
+- Python 3.13 added to the CI matrix, and explicit 3.10-3.13 classifiers so
+  supported versions are visible on PyPI. `requires-python` is unchanged (`>=3.10`).
+- `pip-audit` added to `requirements-dev.txt` — it could not be installed
+  alongside this package before the `platformdirs` pin was lifted.
+
+### Fixed
+- **`PersistentCache` metadata race.** `set()`, `invalidate()`, `clear()`, and
+  `cleanup_expired()` perform a read-modify-write on one shared metadata file
+  with no synchronization. Under concurrent access, interleaved writes corrupt
+  the file or drop entries — and because `get()` treats a cache file with no
+  metadata entry as having no expiry, a dropped entry means that key is served
+  stale forever. Now guarded by a re-entrant lock. This was latent before, and
+  reachable as soon as `max_workers > 1`.
+- Replaced the deprecated `requests.packages.urllib3` import path (removed
+  along with the adapter-level `Retry`).
+
 ## [0.3.0] - 2026-01-15
 
 ### Added

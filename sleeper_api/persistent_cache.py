@@ -6,12 +6,22 @@ Each cache entry includes metadata for expiration tracking.
 """
 import json
 import logging
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Any, Optional, Dict
 from platformdirs import user_cache_dir
 
 logger = logging.getLogger(__name__)
+
+# Serializes read-modify-write cycles on the shared metadata file. Without it,
+# two threads calling set() concurrently both load the metadata, each adds its
+# own key, and the second write drops the first thread's entry. A cache file
+# with no metadata entry is never treated as expired by get(), so the loss is
+# silently permanent staleness rather than a visible error. Class-level and
+# re-entrant: contention is negligible (the metadata file is small) and
+# cleanup_expired() calls invalidate() while already holding it.
+_METADATA_LOCK = threading.RLock()
 
 
 class PersistentCache:
@@ -106,20 +116,21 @@ class PersistentCache:
             return None
 
         # Check metadata for expiration
-        metadata = self._load_metadata()
-        entry_meta = metadata.get(key, {})
+        with _METADATA_LOCK:
+            metadata = self._load_metadata()
+            entry_meta = metadata.get(key, {})
 
-        if entry_meta:
-            expires_at_str = entry_meta.get("expires_at")
-            if expires_at_str:
-                try:
-                    expires_at = datetime.fromisoformat(expires_at_str)
-                    if datetime.now() > expires_at:
-                        self.invalidate(key)
+            if entry_meta:
+                expires_at_str = entry_meta.get("expires_at")
+                if expires_at_str:
+                    try:
+                        expires_at = datetime.fromisoformat(expires_at_str)
+                        if datetime.now() > expires_at:
+                            self.invalidate(key)
+                            return None
+                    except ValueError as e:
+                        logger.warning(f"Invalid expiration date for key {key}: {e}")
                         return None
-                except ValueError as e:
-                    logger.warning(f"Invalid expiration date for key {key}: {e}")
-                    return None
 
         # Load from file
         try:
@@ -150,13 +161,14 @@ class PersistentCache:
             return
 
         # Update metadata
-        metadata = self._load_metadata()
-        now = datetime.now()
-        metadata[key] = {
-            "created_at": now.isoformat(),
-            "expires_at": (now + timedelta(hours=ttl)).isoformat(),
-        }
-        self._save_metadata(metadata)
+        with _METADATA_LOCK:
+            metadata = self._load_metadata()
+            now = datetime.now()
+            metadata[key] = {
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=ttl)).isoformat(),
+            }
+            self._save_metadata(metadata)
 
     def invalidate(self, key: str) -> None:
         """
@@ -175,25 +187,27 @@ class PersistentCache:
                 logger.warning(f"Failed to delete cache file for key {key}: {e}")
 
         # Remove from metadata
-        metadata = self._load_metadata()
-        if key in metadata:
-            del metadata[key]
-            self._save_metadata(metadata)
+        with _METADATA_LOCK:
+            metadata = self._load_metadata()
+            if key in metadata:
+                del metadata[key]
+                self._save_metadata(metadata)
 
     def clear(self) -> None:
         """
         Clear all cache entries.
         """
-        # Remove all cache files
-        for cache_file in self.cache_dir.glob("*.json"):
-            if cache_file != self._metadata_file:
-                try:
-                    cache_file.unlink()
-                except IOError as e:
-                    logger.warning(f"Failed to delete cache file {cache_file}: {e}")
+        with _METADATA_LOCK:
+            # Remove all cache files
+            for cache_file in self.cache_dir.glob("*.json"):
+                if cache_file != self._metadata_file:
+                    try:
+                        cache_file.unlink()
+                    except IOError as e:
+                        logger.warning(f"Failed to delete cache file {cache_file}: {e}")
 
-        # Clear metadata
-        self._save_metadata({})
+            # Clear metadata
+            self._save_metadata({})
 
     def cleanup_expired(self) -> int:
         """
@@ -202,26 +216,27 @@ class PersistentCache:
         Returns:
             Number of entries removed.
         """
-        metadata = self._load_metadata()
-        now = datetime.now()
-        removed = 0
+        with _METADATA_LOCK:
+            metadata = self._load_metadata()
+            now = datetime.now()
+            removed = 0
 
-        keys_to_remove = []
-        for key, entry_meta in metadata.items():
-            expires_at_str = entry_meta.get("expires_at")
-            if expires_at_str:
-                try:
-                    expires_at = datetime.fromisoformat(expires_at_str)
-                    if now > expires_at:
+            keys_to_remove = []
+            for key, entry_meta in metadata.items():
+                expires_at_str = entry_meta.get("expires_at")
+                if expires_at_str:
+                    try:
+                        expires_at = datetime.fromisoformat(expires_at_str)
+                        if now > expires_at:
+                            keys_to_remove.append(key)
+                    except ValueError:
                         keys_to_remove.append(key)
-                except ValueError:
-                    keys_to_remove.append(key)
 
-        for key in keys_to_remove:
-            self.invalidate(key)
-            removed += 1
+            for key in keys_to_remove:
+                self.invalidate(key)
+                removed += 1
 
-        return removed
+            return removed
 
     def get_stats(self) -> Dict[str, Any]:
         """

@@ -49,13 +49,18 @@ This project simplifies accessing the Sleeper API, allowing users to easily fetc
 To install locally, follow these steps:
 
 ### Prerequisites:
-- Python 3.10
+- Python 3.10+
 
 ### Installation:
 ```bash
+pip install sleeper_fantasy_api
+```
+
+### From source (for development):
+```bash
 git clone https://github.com/smallery/sleeper_fantasy_api.git
 cd sleeper_fantasy_api
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 ## Usage
@@ -133,6 +138,15 @@ season_projections = projections_endpoint.get_season_projections(
     weeks=[1, 2, 3, 4]  # Or None for all 18 weeks
 )
 # Returns: {1: {players...}, 2: {players...}, 3: {players...}, 4: {players...}}
+
+# Each week is a separate multi-megabyte request, so a long run of weeks is slow
+# in series. Pass max_workers to fan out over a thread pool (capped at 8) --
+# same results, same key order, just concurrent.
+rest_of_season = projections_endpoint.get_season_projections(
+    season=2024,
+    weeks=list(range(10, 19)),
+    max_workers=8
+)
 
 # Option 4: Track one player across multiple weeks
 mahomes_season = projections_endpoint.get_player_season_projections(
@@ -290,8 +304,8 @@ The current endpoints available through the API are the following:
   - **Methods**:
     - `get_projections(season, week)` - Fetch all player projections for one week
     - `get_player_projection(player_id, season, week)` - Fetch single player projection for one week
-    - `get_season_projections(season, weeks=None)` - Bulk fetch projections across multiple weeks (or all 18 weeks)
-    - `get_player_season_projections(player_id, season, weeks=None)` - Track one player across multiple weeks
+    - `get_season_projections(season, weeks=None, max_workers=1)` - Bulk fetch projections across multiple weeks (or all 18 weeks); `max_workers > 1` fetches weeks concurrently
+    - `get_player_season_projections(player_id, season, weeks=None, max_workers=1)` - Track one player across multiple weeks
     - `calculate_team_projection(starters, projections, scoring_type)` - Calculate total team projection
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
   - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
@@ -320,7 +334,7 @@ Contributions are welcome! To contribute:
 5. Format code: `flake8 sleeper_api`
 6. Submit a pull request
 
-All PRs automatically run tests on Python 3.10, 3.11, and 3.12.
+All PRs automatically run tests on Python 3.10, 3.11, 3.12, and 3.13.
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more information.

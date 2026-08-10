@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sleeper_fantasy_api"
-version = "0.3.0"
+version = "0.4.0"
 description = "A Python wrapper for the Sleeper Fantasy API"
 readme = "README.md"
 authors = [
@@ -17,14 +17,33 @@ license = {text = "MIT"}
 keywords = ["sleeper", "fantasy football", "football", "nfl", "sleeper api", "fantasy"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.10"
+# Runtime dependencies are declared as compatible ranges, not exact pins.
+# A library that pins with "==" forces its constraints onto every consuming
+# application -- it cannot patch a CVE in requests, cannot resolve alongside
+# tools with a higher floor, and cannot move to a newer Python than the pinned
+# release supports. Applications pin; libraries constrain. Upper bounds stop at
+# the next major version, where a breaking change is actually plausible.
 dependencies = [
-    "platformdirs==3.8.1",
-    "requests==2.31.0",
-    "pytest==8.2.2",
+    "platformdirs>=4.2.0,<5",
+    "requests>=2.32.0,<3",
+]
+
+# pytest is a *test* dependency. It was previously listed under [dependencies],
+# which made every consumer of this package install a test framework at runtime
+# and pinned their suite to pytest 8.2.2. Nothing in sleeper_api imports pytest.
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.2",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.14.0",
 ]
 
 [project.urls]

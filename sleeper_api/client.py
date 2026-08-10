@@ -10,15 +10,31 @@ import time
 import logging
 import requests
 from requests.adapters import HTTPAdapter
-from requests.packages.urllib3.util.retry import Retry
 from .config import BASE_URL
 from .exceptions import SleeperAPIError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
+# Status codes worth retrying: 429 is Sleeper rate limiting, the 5xx set is
+# transient server/gateway failure. Anything else is a real answer and is
+# returned (or raised) immediately.
+RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+
 class SleeperClient:
     """
     SleeperClient will be used to perform API calls across multiple endpoints.
+
+    Retry policy: a single explicit layer in :meth:`_request` handles rate
+    limits, transient 5xx responses, and transport errors with exponential
+    backoff. The underlying HTTPAdapter is deliberately configured with
+    ``max_retries=0`` -- when it also carried a urllib3 ``Retry`` the two layers
+    multiplied, so one outage could cost (max_retries + 1) x 4 requests and tens
+    of seconds of stacked sleeps.
+
+    The session is safe to share across threads for the read-only GETs this
+    client makes; the connection pool is sized to allow concurrent fan-out
+    (see ``ProjectionsEndpoint.get_season_projections(max_workers=...)``).
     """
     def __init__(
         self,
@@ -51,18 +67,22 @@ class SleeperClient:
 
     def _create_session(self) -> requests.Session:
         """
-        Create a requests session with retry configuration.
+        Create a requests session sized for concurrent use.
+
+        Retries are handled entirely by :meth:`_request`, so the adapter is
+        mounted with ``max_retries=0``. The pool is enlarged past urllib3's
+        default of 10 so that a thread-pool fan-out over several weeks of
+        projections does not serialize on connection checkout.
 
         Returns:
-            Configured requests.Session with automatic retry for server errors.
+            Configured requests.Session.
         """
         session = requests.Session()
-        retry_strategy = Retry(
-            total=3,
-            backoff_factor=0.5,
-            status_forcelist=[500, 502, 503, 504],
+        adapter = HTTPAdapter(
+            pool_connections=10,
+            pool_maxsize=20,
+            max_retries=0,
         )
-        adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
         return session
@@ -109,18 +129,6 @@ class SleeperClient:
                     json=data,
                     timeout=self.timeout
                 )
-
-                # Handle rate limiting with exponential backoff
-                if response.status_code == 429:
-                    if attempt < self.max_retries:
-                        logger.warning(f"Rate limited, retrying in {backoff}s (attempt {attempt + 1}/{self.max_retries})")
-                        time.sleep(backoff)
-                        backoff *= 2  # Exponential backoff
-                        continue
-                    raise RateLimitError("Rate limit exceeded after all retries")
-
-                return self._handle_response(response)
-
             except requests.RequestException as exc:
                 if attempt < self.max_retries:
                     logger.warning(f"Request failed, retrying in {backoff}s: {exc}")
@@ -128,6 +136,23 @@ class SleeperClient:
                     backoff *= 2
                     continue
                 raise SleeperAPIError(f"Request failed after {self.max_retries} retries: {exc}") from exc
+
+            # Retry rate limits and transient server errors with exponential
+            # backoff. 5xx used to be retried by the adapter's urllib3 Retry;
+            # it is handled here now so there is exactly one retry layer.
+            if response.status_code in RETRY_STATUS_CODES and attempt < self.max_retries:
+                logger.warning(
+                    f"Got {response.status_code}, retrying in {backoff}s "
+                    f"(attempt {attempt + 1}/{self.max_retries})"
+                )
+                time.sleep(backoff)
+                backoff *= 2  # Exponential backoff
+                continue
+
+            if response.status_code == 429:
+                raise RateLimitError("Rate limit exceeded after all retries")
+
+            return self._handle_response(response)
 
     def get(self, endpoint, params=None):
         """
