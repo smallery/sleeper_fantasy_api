@@ -1,5 +1,6 @@
 from typing import List, Optional
 
+from ..exceptions import SleeperAPIError
 from .league import LeagueModel
 
 
@@ -31,8 +32,14 @@ class UserModel:
         # describes the *type* -- from_json() supplies these via
         # data.get(...), which mypy types as Optional since the Sleeper
         # payload has no schema guarantee -- it does not make them omittable.
+        #
+        # user_id is the exception: from_json() rejects a payload without one
+        # (see below), so publishing it as Optional would force every caller
+        # into a None check for a state that cannot reach them -- and
+        # user.user_id is the value they feed straight back into
+        # fetch_nfl_leagues(user_id: str).
         username: Optional[str],
-        user_id: Optional[str],
+        user_id: str,
         display_name: Optional[str],
         avatar: Optional[str],
     ):
@@ -58,11 +65,19 @@ class UserModel:
         :param data: A dictionary containing user data.
         :return: An instance of UserModel.
         """
+        # Sleeper always returns a user_id for a user that exists, and
+        # callers pass it straight into APIs typed `user_id: str`. Validate
+        # here rather than publishing Optional -- same treatment LeagueModel
+        # and DraftModel give their required fields.
+        user_id = data.get("user_id")
+        if user_id is None:
+            raise SleeperAPIError("User payload has no user_id")
+
         return cls(
             username=data.get("username"),
-            user_id=data.get("user_id"),
+            user_id=user_id,
             display_name=data.get("display_name"),
-            avatar=data.get("avatar")
+            avatar=data.get("avatar"),
         )
 
     def __repr__(self) -> str:
