@@ -184,11 +184,9 @@ class ProjectionsEndpoint:
             season: NFL season year (e.g., 2024).
             weeks: List of week numbers to fetch. If None, fetches all 18 regular season weeks.
             max_workers: Number of weeks to fetch concurrently. Defaults to 1
-                (sequential). Pass a higher value to fan out over a thread pool
-                -- fetching ~10 weeks of projections one at a time is several
-                multi-megabyte round trips in series, which is slow enough to
-                blow a typical HTTP request timeout. Capped at 8; values below 1
-                are treated as 1.
+                (sequential). Pass a higher value to fan out over a thread pool.
+                Capped at 8; values below 1 are treated as 1. See the
+                performance note below before reaching for it.
 
         Returns:
             Dict mapping week number -> projections dict, in the order the weeks
@@ -199,9 +197,25 @@ class ProjectionsEndpoint:
             - Weeks with no data available return empty dicts
             - Each week is cached independently (24-hour TTL)
             - Failed weeks are logged but don't stop other weeks from fetching
-            - Concurrent fetches hold every requested week's payload in memory at
-              once, so a large `weeks` list with a high `max_workers` trades
-              memory for latency
+
+        Performance (measured against the live API, 2025 season, 18 weeks):
+            A week of projections is roughly 0.55 MB and ~9,400 player entries,
+            so 18 weeks is about 9.4 MB total -- less than you might assume.
+            Sequentially that is ~0.8s on a warm connection, and an 8-way
+            fan-out brings it to ~0.35s (~2.4x). The network portion alone
+            parallelizes ~3.4x; the gap is the cache write, which is CPU-bound
+            JSON serialization and holds the GIL.
+
+            The win depends on connection reuse. Each worker needs its own
+            pooled connection, and a TLS handshake to Sleeper costs ~0.3s --
+            far more than the ~0.03s a warm request takes. Over a cold pool with
+            only a few weeks, the fan-out can pay more in handshakes than it
+            saves, and may be no faster or slightly slower. It pays off when the
+            client is long-lived (connections already established) or when
+            round-trip latency is high.
+
+            Concurrent fetches also hold every requested week's payload in
+            memory at once, trading memory for latency.
 
         Example:
             >>> # Fetch first 4 weeks

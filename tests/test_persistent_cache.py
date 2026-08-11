@@ -127,6 +127,25 @@ class TestPersistentCache:
         # Assert
         assert result == value
 
+    def test_unserializable_value_leaves_no_partial_file(self, cache, temp_cache_dir):
+        """A value that fails to encode must not leave a truncated cache file.
+
+        set() serializes fully before opening the file. Encoding into an open
+        file handle instead would flush valid JSON for the prefix it managed
+        before raising, leaving corrupt bytes on disk under a live key.
+        """
+        # Arrange -- a large valid prefix so an incremental encoder would have
+        # written plenty before reaching the value it cannot handle.
+        value = {f"player_{i}": {"pts_ppr": float(i)} for i in range(500)}
+        value["bad"] = object()
+
+        # Act
+        cache.set("partial_key", value)
+
+        # Assert
+        assert not (temp_cache_dir / "partial_key.json").exists()
+        assert cache.get("partial_key") is None
+
     def test_concurrent_set_keeps_every_metadata_entry(self, cache, temp_cache_dir):
         """Concurrent set() must not lose entries to a metadata write race.
 

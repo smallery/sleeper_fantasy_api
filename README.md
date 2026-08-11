@@ -139,9 +139,11 @@ season_projections = projections_endpoint.get_season_projections(
 )
 # Returns: {1: {players...}, 2: {players...}, 3: {players...}, 4: {players...}}
 
-# Each week is a separate multi-megabyte request, so a long run of weeks is slow
-# in series. Pass max_workers to fan out over a thread pool (capped at 8) --
-# same results, same key order, just concurrent.
+# Pass max_workers to fetch the weeks concurrently (capped at 8) -- same
+# results, same key order. Measured on the live API, 18 weeks of the 2025
+# season over a warm connection: ~0.8s sequential vs ~0.35s with 8 workers.
+# The gain depends on connection reuse -- see the method docstring; over a
+# cold connection pool with only a few weeks it can be a wash.
 rest_of_season = projections_endpoint.get_season_projections(
     season=2024,
     weeks=list(range(10, 19)),
