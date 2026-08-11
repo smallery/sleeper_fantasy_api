@@ -142,6 +142,169 @@ silently reopening a connection -- `requests.Session` does not itself refuse
 reuse after `close()`, so this client checks explicitly to keep the lifecycle
 honest. `close()` itself is idempotent; calling it more than once is safe.
 
+### Calling This Client from Async Code
+
+`SleeperClient` is built on `requests` and is synchronous end to end -- every
+method blocks the calling thread until the HTTP response comes back. That's
+fine from a script or a sync web framework, but if you call it directly from
+inside an event loop (FastAPI, aiohttp, discord.py, an `asyncio` task) it
+blocks the *entire loop* for the duration of the call, not just the coroutine
+that made it. For a single user lookup that's tens of milliseconds. For
+`get_season_projections()` fetching a full season, it's the better part of a
+second -- long enough to stall every other request or event your app is
+handling concurrently.
+
+**The pattern: `asyncio.to_thread`.** It runs a blocking call in a worker
+thread and hands you back an awaitable, so the loop stays free to do other
+work while the request is in flight.
+
+```python
+import asyncio
+from sleeper_api.client import SleeperClient
+from sleeper_api.endpoints.user_endpoint import UserEndpoint
+
+async def get_user(client: SleeperClient, username: str):
+    user_endpoint = UserEndpoint(client)
+    # runs client.get(...) in a worker thread; the event loop is free
+    # for the entire duration of the request
+    return await asyncio.to_thread(user_endpoint.get_user, username)
+
+async def main():
+    # `with` guarantees the session is released even if the request raises --
+    # on an exceptional exit a bare client.close() at the end would be skipped.
+    # See the cancellation caveat below before using this shape in a service.
+    with SleeperClient() as client:
+        user = await get_user(client, "your_username")
+        print(f"User: {user.display_name}")
+
+asyncio.run(main())
+```
+
+**Cancellation caveat: don't close a client out from under a running worker.**
+Cancelling an `await asyncio.to_thread(...)` — via `asyncio.wait_for`, a
+timeout, or task cancellation — abandons the *awaitable*, but it cannot stop
+the worker thread, which keeps running the request to completion. If that
+cancellation also unwinds a `with SleeperClient()` block, the client is closed
+while the worker is still using it. A *new* request from that worker fails
+fast with `RuntimeError` (the closed-client guard), which is noisy but safe.
+A request already inside its retry loop is the sharper case: the closed check
+runs when a request starts, not between retries, so it can open a fresh
+connection *after* `close()`.
+
+The `with` form above is fine for a script that runs to completion, which is
+the common case and why it's shown first. But **if anything in your program can
+cancel or time out these calls, use a long-lived client** whose shutdown cannot
+race outstanding work — hold it for the life of the process and close it once,
+during orderly shutdown, as in the FastAPI example below.
+
+If you must scope a client narrowly under cancellation, the block has to wait
+for the worker itself. Note that `asyncio.shield` alone does **not** do this:
+it keeps the inner task from being cancelled, but the `await` on it still
+raises `CancelledError` immediately, so the `with` block unwinds anyway and
+closes the client while the worker runs on. You have to catch the cancellation
+and await the task before re-raising:
+
+```python
+task = asyncio.create_task(get_user(client, "your_username"))
+try:
+    user = await asyncio.shield(task)
+except asyncio.CancelledError:
+    await task          # let the worker finish before the client is closed
+    raise
+```
+
+`asyncio.to_thread` requires Python 3.9+; since this package requires
+3.10+, prefer it over the older, more verbose
+`loop.run_in_executor(None, func, *args)` -- they do the same thing, but
+`run_in_executor` predates `to_thread` and only exists for callers still
+supporting Python 3.8 or earlier.
+
+**Wrapping the existing thread-pool fan-out.** `get_season_projections(max_workers=...)`
+(see [Advanced Usage: Player Projections](#advanced-usage-player-projections)
+below) already fans requests out across a `ThreadPoolExecutor` internally.
+Wrapping that whole call in `asyncio.to_thread` is fine and is the
+recommended way to call it from async code -- it just moves the entire
+fan-out onto one worker thread, off the event loop:
+
+```python
+season_projections = await asyncio.to_thread(
+    projections_endpoint.get_season_projections,
+    season=2025,
+    weeks=list(range(1, 19)),
+    max_workers=8,
+)
+```
+
+Don't try to be cleverer than that by running individual weeks through your
+own `asyncio.to_thread` calls to parallelize on top of the library's thread
+pool -- `get_season_projections` already owns a pool of up to 8 threads
+internally, and stacking a second pool of coroutines-that-spawn-threads
+around it just adds scheduling overhead for no extra concurrency. Call it
+once, wrapped once.
+
+**Client lifetime still applies.** The same long-lived-client guidance from
+[Client Lifecycle](#client-lifecycle-context-manager-vs-long-lived-client)
+above holds in an async app: create one `SleeperClient` when your app starts
+(e.g. held on the FastAPI `app.state` or equivalent), reuse it across
+requests, and `close()` it on shutdown. The warm connection pool it holds is
+what makes the thread-pool fan-out fast in the first place; a fresh client
+per request throws that away regardless of whether the call is wrapped in
+`asyncio.to_thread`.
+
+A complete FastAPI application, using a lifespan handler to build the client
+once at startup and close it at shutdown:
+
+```python
+import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+
+from sleeper_api.client import SleeperClient
+from sleeper_api.endpoints.user_endpoint import UserEndpoint
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # One client for the life of the process, so the connection pool stays warm.
+    app.state.sleeper = SleeperClient()
+    yield
+    app.state.sleeper.close()
+
+
+# The lifespan handler only runs if it is registered here.
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/user/{username}")
+async def get_user(username: str, request: Request):
+    user_endpoint = UserEndpoint(request.app.state.sleeper)
+    user = await asyncio.to_thread(user_endpoint.get_user, username)
+    return {"display_name": user.display_name}
+```
+
+**Why there's no native async client (yet).** This library does not ship an
+`asyncio`-native client (no `httpx`/`aiohttp`, no `AsyncSleeperClient`).
+Measured against the live API, 18 weeks of 2025 projections:
+
+| | time |
+|---|---|
+| sequential | ~0.83s |
+| 8 threads (`max_workers=8`) | ~0.35s |
+| network portion alone | ~3.4x parallelizable |
+
+The existing thread-pool fan-out already captures most of the available
+concurrency for this workload; the residual gap is GIL-bound JSON
+serialization, which a native async client would not help with either. In
+other words, **`asyncio.to_thread` will not make requests faster than
+calling this client directly** -- it makes them not block your event loop
+while they happen, which is a different and, for most callers, more
+relevant problem. If you outgrow this pattern -- e.g. you need thousands of
+truly concurrent connections rather than freedom from blocking a handful of
+requests -- see [issue #23](https://github.com/smallery/sleeper_fantasy_api/issues/23)
+for the tracked discussion of a native async client, and weigh in there if
+that's you.
+
 ### Advanced Usage: Player Projections
 
 Access weekly player projections and calculate team totals:
