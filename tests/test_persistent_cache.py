@@ -4,7 +4,9 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+
 import pytest
+
 from sleeper_api.persistent_cache import PersistentCache
 
 
@@ -695,3 +697,108 @@ class TestPersistentCache:
         # this entry's expires_at would already be in the past by the time
         # set() returns, and get() would delete it immediately.
         assert cache.get("race_key") == {"data": "value"}
+
+    # -- set_bytes() -- issue #15 -------------------------------------------
+
+    def test_set_bytes_round_trips_through_get(self, cache):
+        """set_bytes() writes raw JSON bytes; get() must parse them back."""
+        raw = json.dumps({"player1": {"pts_ppr": 15.5}}).encode("utf-8")
+
+        cache.set_bytes("proj_key", raw)
+
+        assert cache.get("proj_key") == {"player1": {"pts_ppr": 15.5}}
+
+    def test_set_bytes_writes_the_exact_bytes_given_no_re_encoding(
+        self, cache, temp_cache_dir
+    ):
+        """set_bytes() must not run the bytes through json.dumps()/json.load()
+        on the way to disk -- that round trip is exactly the cost issue #15
+        removes. The file on disk must be byte-identical to what was passed
+        in, including formatting json.dumps() would never itself produce
+        (extra whitespace, a particular key order).
+        """
+        raw = b'{"player1":   {"pts_ppr":15.5},   "player2": {"pts_ppr": 9.0}}'
+
+        cache.set_bytes("proj_key", raw)
+
+        on_disk = (temp_cache_dir / "proj_key.json").read_bytes()
+        assert on_disk == raw
+
+    def test_set_bytes_handles_non_ascii_utf8_correctly(self, cache):
+        """Raw API bytes are UTF-8 and may contain non-ASCII characters (e.g.
+        accented player names). json.dumps() output is pure ASCII by default
+        (ensure_ascii=True), so set()'s path never exercised this -- but
+        set_bytes() writes arbitrary API bytes verbatim, so get() must read
+        them back correctly rather than mis-decoding or crashing.
+        """
+        raw = json.dumps({"player1": {"name": "José Ramírez"}}, ensure_ascii=False).encode("utf-8")
+
+        cache.set_bytes("intl_key", raw)
+
+        assert cache.get("intl_key") == {"player1": {"name": "José Ramírez"}}
+
+    def test_set_bytes_writes_sidecar_metadata_with_ttl(self, cache, temp_cache_dir):
+        """set_bytes() must publish through the same metadata path as set()
+        -- a sidecar file, honoring ttl_hours -- not some parallel mechanism
+        that could drift out of sync with it.
+        """
+        raw = b'{"a": 1}'
+
+        cache.set_bytes("ttl_key", raw, ttl_hours=10.0)
+
+        meta_path = temp_cache_dir / "ttl_key.meta"
+        assert meta_path.exists()
+        entry = json.loads(meta_path.read_text())
+        created = datetime.fromisoformat(entry["created_at"])
+        expires = datetime.fromisoformat(entry["expires_at"])
+        assert abs((expires - created) - timedelta(hours=10.0)) < timedelta(seconds=5)
+
+    def test_set_bytes_respects_ttl_expiration(self, cache):
+        """An entry written via set_bytes() with a short TTL must expire and
+        be evicted by get(), exactly like a set()-written entry.
+        """
+        cache.set_bytes("short_lived", b'{"a": 1}', ttl_hours=0.0001)
+
+        time.sleep(0.5)
+
+        assert cache.get("short_lived") is None
+
+    def test_set_bytes_invalid_json_is_a_graceful_cache_miss(self, cache, temp_cache_dir):
+        """set_bytes() deliberately does not validate its input as JSON (that
+        would mean parsing it, defeating the point). An invalid payload must
+        not crash the cache -- get() should treat it like any other corrupt
+        cache file: log a warning and return None.
+        """
+        cache.set_bytes("bad_key", b"not actually json")
+
+        assert (temp_cache_dir / "bad_key.json").exists()  # written verbatim
+        assert cache.get("bad_key") is None
+
+    def test_set_and_set_bytes_are_interchangeable_for_get(self, cache):
+        """get() must not care which method published an entry."""
+        value = {"a": 1, "b": [1, 2, 3]}
+
+        cache.set("via_set", value)
+        cache.set_bytes("via_set_bytes", json.dumps(value).encode("utf-8"))
+
+        assert cache.get("via_set") == cache.get("via_set_bytes") == value
+
+    def test_concurrent_set_bytes_keeps_every_metadata_entry(self, cache, temp_cache_dir):
+        """Mirrors test_concurrent_set_keeps_every_metadata_entry for
+        set_bytes(): concurrent writers to different keys must not lose or
+        corrupt each other's sidecar metadata.
+        """
+        keys = [f"raw_key_{i}" for i in range(50)]
+        start = threading.Barrier(len(keys), timeout=10)
+
+        def writer(key):
+            start.wait()
+            cache.set_bytes(key, json.dumps({"data": key}).encode("utf-8"))
+
+        with ThreadPoolExecutor(max_workers=len(keys)) as executor:
+            list(executor.map(writer, keys))
+
+        for key in keys:
+            meta_path = temp_cache_dir / f"{key}.meta"
+            assert meta_path.exists(), f"missing sidecar metadata for {key}"
+            assert cache.get(key) == {"data": key}

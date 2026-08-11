@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -184,12 +184,19 @@ class SleeperClient:
         session.mount("http://", adapter)
         return session
 
-    def _handle_response(self, response):
+    def _handle_response(self, response, raw: bool = False):
         """
         Handle the API response.
 
         :param response: The HTTP response object.
-        :return: The parsed JSON data or raise an error.
+        :param raw: If True, return the raw response body (``bytes``)
+            instead of parsing it as JSON. Used by :meth:`get_raw` so a
+            caller that wants to persist the response (e.g. a cache) can
+            write exactly what the server sent, without this client decoding
+            it to a dict that the caller would otherwise have to re-encode
+            back to bytes. See issue #15.
+        :return: The parsed JSON data (or raw bytes, if ``raw``) or raise an
+            error.
         """
         if response.status_code == 404:
             return None  # Not an error, just missing resource
@@ -199,20 +206,21 @@ class SleeperClient:
                 f"Error {response.status_code}: {response.text}",
                 status_code=response.status_code
             )
+        if raw:
+            return response.content
         try:
             return response.json()
         except ValueError as exc:
             raise SleeperAPIError("Invalid JSON response received") from exc
 
-    def _request(self, method, endpoint, params=None, data=None):
+    def _check_not_closed(self):
         """
-        Make a request to the Sleeper API with retry logic.
+        Raise if the client has been closed.
 
-        :param method: HTTP method (GET, POST, etc.).
-        :param endpoint: API endpoint (e.g., 'user/{user_id}').
-        :param params: URL parameters.
-        :param data: Request payload for POST/PUT requests.
-        :return: Parsed JSON response.
+        Shared by the entry check and the top of every retry iteration in
+        :meth:`_request` (see there for why both matter), so the two can
+        never diverge in behavior or message.
+
         :raises RuntimeError: If the client has been closed. requests.Session
             does not enforce this itself -- a closed adapter just opens a new
             socket on the next call, silently undoing close() -- so this
@@ -226,10 +234,36 @@ class SleeperClient:
                 "reusing one after close() or exiting its `with` block."
             )
 
+    def _request(self, method, endpoint, params=None, data=None, raw=False):
+        """
+        Make a request to the Sleeper API with retry logic.
+
+        :param method: HTTP method (GET, POST, etc.).
+        :param endpoint: API endpoint (e.g., 'user/{user_id}').
+        :param params: URL parameters.
+        :param data: Request payload for POST/PUT requests.
+        :param raw: If True, return the raw response body (bytes) instead of
+            parsed JSON. See :meth:`get_raw`.
+        :return: Parsed JSON response (or raw bytes, if ``raw``).
+        :raises RuntimeError: If the client is closed. Checked on entry *and*
+            again at the top of every retry iteration -- not just once --
+            because `close()` can land from another thread (or an
+            `asyncio.to_thread` caller that got cancelled and unwound a
+            `with SleeperClient()` block) while this call is asleep in
+            `time.sleep(backoff)` between attempts. Without the recheck, a
+            request that had already passed the entry check could wake up
+            and open a fresh connection after the session was supposed to be
+            gone -- the exact thing the guard exists to prevent. Aborting
+            mid-retry raises the same `RuntimeError` as the entry check
+            (rather than a distinct error type), since both represent the
+            same fact from the caller's point of view: this client is closed,
+            stop using it. See issue #30.
+        """
         url = f'{self.base_url}{endpoint}'
         backoff = self.initial_backoff
 
         for attempt in range(self.max_retries + 1):
+            self._check_not_closed()
             try:
                 response = self.session.request(
                     method=method,
@@ -289,7 +323,7 @@ class SleeperClient:
             if response.status_code == 429:
                 raise RateLimitError("Rate limit exceeded after all retries")
 
-            return self._handle_response(response)
+            return self._handle_response(response, raw=raw)
 
     def get(self, endpoint, params=None) -> Any:
         """
@@ -300,6 +334,28 @@ class SleeperClient:
         :return: Parsed JSON response.
         """
         return self._request('GET', endpoint, params=params)
+
+    def get_raw(self, endpoint, params=None) -> Optional[bytes]:
+        """
+        Make a GET request, returning the raw response body instead of
+        parsed JSON.
+
+        Exists so a caller that wants to persist the response verbatim (e.g.
+        :class:`~sleeper_api.persistent_cache.PersistentCache`, via
+        :meth:`~sleeper_api.persistent_cache.PersistentCache.set_bytes`) can
+        write exactly what the server sent, instead of this client decoding
+        the body to a dict that the caller then has to re-encode back into
+        bytes to store -- a decode-then-re-encode round trip that turned out
+        to be the dominant cost of a cache write (see issue #15). Goes
+        through the same retry/rate-limit handling as :meth:`get`; ``get()``
+        keeps its existing signature and return type unchanged.
+
+        :param endpoint: API endpoint (e.g., 'projections/nfl/regular/2025/1').
+        :param params: URL parameters.
+        :return: Raw response body as ``bytes``, or ``None`` for a 404
+            (matching ``get()``'s contract for a missing resource).
+        """
+        return self._request('GET', endpoint, params=params, raw=True)
 
     def get_base_url(self) -> str:
         "Returns the base url"

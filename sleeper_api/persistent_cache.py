@@ -288,11 +288,17 @@ class PersistentCache:
                     self._invalidate_locked(key)
                     return None
 
-        # Load from file
+        # Load from file. Opened in binary mode (see set()/set_bytes() for
+        # why data files are always written as bytes, not text) -- json.load()
+        # accepts a binary file object just as well as a text one; loads()
+        # sniffs UTF-8/16/32 per RFC 8259 when given bytes, so this reads
+        # both a json.dumps()-produced entry (pure ASCII, per ensure_ascii's
+        # default) and a set_bytes()-produced entry (verbatim bytes from an
+        # API response, which may contain non-ASCII UTF-8) correctly.
         try:
-            with open(cache_path, "r") as f:
+            with open(cache_path, "rb") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
+        except (json.JSONDecodeError, IOError, UnicodeDecodeError) as e:
             logger.warning(f"Failed to load cache for key {key}: {e}")
             return None
 
@@ -305,46 +311,100 @@ class PersistentCache:
             value: Value to cache (must be JSON serializable).
             ttl_hours: Time-to-live in hours. If None, uses default_ttl_hours.
         """
-        ttl = ttl_hours if ttl_hours is not None else self.default_ttl_hours
-        cache_path = self._get_cache_path(key)
-
         # Serialize before opening the file, for two reasons. json.dumps() uses
         # the C encoder in one shot, while json.dump(obj, f) falls back to the
         # pure-Python incremental encoder -- measured 5x faster on a ~0.55 MB
         # projections payload (44ms -> 8.5ms), and this is the dominant cost of
         # a bulk fetch once the network is parallelized. It also means a payload
         # that fails to serialize leaves no half-written file behind.
+        #
+        # For a caller that already holds JSON-encoded bytes (e.g. an HTTP
+        # response body) and wants to skip this serialization step entirely,
+        # see set_bytes() -- issue #15 found that re-serializing a dict the
+        # caller decoded from bytes it already had was ~18x more expensive
+        # than just writing those original bytes back out.
         try:
             serialized = json.dumps(value)
         except (TypeError, ValueError) as e:
             logger.warning(f"Failed to serialize cache value for key {key}: {e}")
             return
 
-        # Hold the lock across BOTH the data write and the metadata write.
-        #
-        # Without this, the data file is published (becomes visible to
-        # cache_path.exists()) before the lock is even acquired, opening a
-        # window where a concurrent get() can see a data file with no
-        # metadata anywhere -- indistinguishable from a true orphan -- and,
-        # via the #14 fail-closed fix, delete the data file this very set()
-        # just wrote. set() would then go on to write its sidecar for a file
-        # that no longer exists and return successfully, silently discarding
-        # a completed cache write. Holding the lock here makes a concurrent
-        # get() block until the whole publish is done, so it only ever
-        # observes "nothing written yet" (correct: nothing to serve) or
-        # "fully written" -- never the in-between. See PR #26 review
-        # (finding 1).
-        #
-        # This does reintroduce lock contention between set() calls for
-        # *different* keys for the duration of the data-file write (not just
-        # the small sidecar write, as before) -- accepted as the cost of
-        # closing a data-loss race; it does not reintroduce the O(n)
-        # per-entry cost the sidecar split was for; the legacy shared index
-        # (see below) is still never read or rewritten here.
+        self._publish(key, serialized.encode("utf-8"), ttl_hours)
+
+    def set_bytes(self, key: str, raw: bytes, ttl_hours: Optional[float] = None) -> None:
+        """
+        Store pre-serialized JSON bytes verbatim, skipping json.dumps().
+
+        For a caller that already has JSON-encoded bytes on hand -- typically
+        an HTTP response body -- and wants the cache write to cost a plain
+        file write, not a decode-then-re-encode round trip. See issue #15:
+        measured at 0.45ms to write the original ~0.55MB response bytes
+        directly, versus 8.18ms to re-serialize the dict `set()` would
+        otherwise have to build from them first.
+
+        `raw` is written exactly as given and is NOT validated as JSON here
+        -- validating would mean parsing it, which defeats the entire point
+        of this method. An invalid payload surfaces later, the same way any
+        other corrupted cache file does: get() logs a JSONDecodeError (or
+        UnicodeDecodeError) and returns None.
+
+        Args:
+            key: Cache key.
+            raw: JSON-encoded bytes to store verbatim.
+            ttl_hours: Time-to-live in hours. If None, uses default_ttl_hours.
+        """
+        self._publish(key, raw, ttl_hours)
+
+    def _publish(self, key: str, data: bytes, ttl_hours: Optional[float]) -> None:
+        """
+        Shared publish path for set() and set_bytes(): write the data file,
+        then this key's sidecar metadata, holding `_METADATA_LOCK` across
+        both writes.
+
+        Data files are always written as bytes (binary mode), never text.
+        This is what lets set_bytes() write an API response's bytes straight
+        through with no encode/decode step, and it's why set() itself
+        encodes its (ASCII-only, per json.dumps()'s ensure_ascii default)
+        serialized string to UTF-8 before handing it here -- so both paths
+        share one write path and get() can always read data files back in
+        binary mode without caring which one wrote a given entry. This does
+        NOT touch the atomic-sidecar-write machinery (`_write_entry_meta`'s
+        temp-file + `os.replace`) or the data+metadata lock span -- both are
+        unchanged from the #26-review fixes; only *what* gets written to the
+        data file changed.
+
+        Hold the lock across BOTH the data write and the metadata write.
+        Without this, the data file is published (becomes visible to
+        cache_path.exists()) before the lock is even acquired, opening a
+        window where a concurrent get() can see a data file with no
+        metadata anywhere -- indistinguishable from a true orphan -- and,
+        via the #14 fail-closed fix, delete the data file this very publish
+        just wrote. This would then go on to write its sidecar for a file
+        that no longer exists and return successfully, silently discarding a
+        completed cache write. Holding the lock here makes a concurrent
+        get() block until the whole publish is done, so it only ever
+        observes "nothing written yet" (correct: nothing to serve) or "fully
+        written" -- never the in-between. See PR #26 review (finding 1).
+
+        This does reintroduce lock contention between set()/set_bytes()
+        calls for *different* keys for the duration of the data-file write
+        (not just the small sidecar write, as before) -- accepted as the
+        cost of closing a data-loss race; it does not reintroduce the O(n)
+        per-entry cost the sidecar split was for; the legacy shared index
+        (see below) is still never read or rewritten here.
+
+        Args:
+            key: Cache key.
+            data: Bytes to write verbatim to the data file.
+            ttl_hours: Time-to-live in hours. If None, uses default_ttl_hours.
+        """
+        ttl = ttl_hours if ttl_hours is not None else self.default_ttl_hours
+        cache_path = self._get_cache_path(key)
+
         with _METADATA_LOCK:
             try:
-                with open(cache_path, "w") as f:
-                    f.write(serialized)
+                with open(cache_path, "wb") as f:
+                    f.write(data)
             except IOError as e:
                 logger.warning(f"Failed to save cache for key {key}: {e}")
                 return
@@ -358,14 +418,14 @@ class PersistentCache:
             self._after_data_write()
 
             # Compute the TTL window here, inside the lock, not before it.
-            # set() can block on _METADATA_LOCK behind another thread's
-            # write (the cost of the finding-1 fix above, which widened the
-            # lock to cover the data write). If `now` were captured before
-            # that wait, the time spent blocked would be silently consumed
-            # out of this entry's lifetime -- with a short TTL, or behind a
-            # slow preceding write, set() could return an entry that's
-            # already expired and gets deleted by the very next get(). See
-            # PR #26 review (finding B).
+            # This can block on _METADATA_LOCK behind another thread's write
+            # (the cost of the finding-1 fix above, which widened the lock to
+            # cover the data write). If `now` were captured before that wait,
+            # the time spent blocked would be silently consumed out of this
+            # entry's lifetime -- with a short TTL, or behind a slow
+            # preceding write, this could publish an entry that's already
+            # expired and gets deleted by the very next get(). See PR #26
+            # review (finding B).
             now = datetime.now()
             entry_meta = {
                 "created_at": now.isoformat(),
@@ -378,7 +438,7 @@ class PersistentCache:
             # of cached entries (see the set() benchmark in the PR
             # description). We deliberately do NOT also touch the legacy
             # shared index here -- doing so would read and rewrite it in
-            # full on every set(), reintroducing the exact O(n) cost this
+            # full on every publish, reintroducing the exact O(n) cost this
             # change removes. A stale legacy entry left behind for this key
             # is harmless: get() always checks the sidecar first, and
             # cleanup_expired() sweeps stale legacy entries for keys that

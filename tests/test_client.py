@@ -1,7 +1,9 @@
+import threading
 import unittest
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
+
 from sleeper_api.client import SleeperClient, _parse_retry_after
-from sleeper_api.exceptions import SleeperAPIError, RateLimitError
+from sleeper_api.exceptions import RateLimitError, SleeperAPIError
 
 
 class TestSleeperClient(unittest.TestCase):
@@ -176,6 +178,66 @@ class TestSleeperClient(unittest.TestCase):
         # Should have slept once for retry
         mock_sleep.assert_called_once()
 
+    @patch('sleeper_api.client.requests.Session.request')
+    def test_get_raw_returns_bytes_not_parsed_json(self, mock_request):
+        # get_raw() exists so a caller (PersistentCache.set_bytes(), via
+        # ProjectionsEndpoint) can persist exactly what the server sent --
+        # see issue #15. It must return the raw body, and must NOT call
+        # response.json() at all (that would defeat the point: parsing just
+        # to discard the result).
+        mock_response = Mock()
+        mock_response.headers = {}
+        mock_response.status_code = 200
+        mock_response.ok = True
+        mock_response.content = b'{"key": "value"}'
+        mock_request.return_value = mock_response
+
+        result = self.client.get_raw('some-endpoint')
+
+        self.assertEqual(result, b'{"key": "value"}')
+        mock_response.json.assert_not_called()
+        mock_request.assert_called_with(
+            method='GET',
+            url=self.client.base_url + 'some-endpoint',
+            params=None,
+            json=None,
+            timeout=self.client.timeout
+        )
+
+    @patch('sleeper_api.client.requests.Session.request')
+    def test_get_raw_404_returns_none(self, mock_request):
+        # Matches get()'s contract: a missing resource is not an error.
+        mock_response = Mock()
+        mock_response.headers = {}
+        mock_response.status_code = 404
+        mock_response.ok = False
+        mock_response.text = "Not Found"
+        mock_request.return_value = mock_response
+
+        self.assertIsNone(self.client.get_raw('invalid-endpoint'))
+
+    @patch('sleeper_api.client.time.sleep')
+    @patch('sleeper_api.client.requests.Session.request')
+    def test_get_raw_error_status_raises(self, mock_request, mock_sleep):
+        mock_response = Mock()
+        mock_response.headers = {}
+        mock_response.status_code = 500
+        mock_response.ok = False
+        mock_response.text = "Internal Server Error"
+        mock_request.return_value = mock_response
+
+        with self.assertRaises(SleeperAPIError) as context:
+            self.client.get_raw('error-endpoint')
+
+        self.assertIn("Error 500", str(context.exception))
+
+    def test_get_keeps_its_existing_signature_and_return_type(self):
+        # Explicit acceptance check from issue #15: adding get_raw() must not
+        # change get()'s public contract.
+        import inspect
+        sig = inspect.signature(SleeperClient.get)
+        self.assertEqual(list(sig.parameters), ['self', 'endpoint', 'params'])
+
 
 class TestRetryAfter(unittest.TestCase):
     """Retry-After handling in the consolidated retry loop.
@@ -222,8 +284,8 @@ class TestRetryAfter(unittest.TestCase):
     @patch('sleeper_api.client.time.sleep')
     @patch('sleeper_api.client.requests.Session.request')
     def test_retry_after_http_date_is_parsed(self, mock_request, mock_sleep):
-        from email.utils import format_datetime
         from datetime import datetime, timedelta, timezone
+        from email.utils import format_datetime
 
         when = datetime.now(timezone.utc) + timedelta(seconds=20)
         ok = self._response(200, ok=True)
@@ -239,8 +301,8 @@ class TestRetryAfter(unittest.TestCase):
     @patch('sleeper_api.client.time.sleep')
     @patch('sleeper_api.client.requests.Session.request')
     def test_past_http_date_does_not_sleep_negative(self, mock_request, mock_sleep):
-        from email.utils import format_datetime
         from datetime import datetime, timedelta, timezone
+        from email.utils import format_datetime
 
         when = datetime.now(timezone.utc) - timedelta(seconds=30)
         ok = self._response(200, ok=True)
@@ -345,6 +407,74 @@ class TestClientLifecycle(unittest.TestCase):
             self.client.get('some-endpoint')
         self.assertIn("closed", str(ctx.exception))
         mock_request.assert_not_called()
+
+    @patch('sleeper_api.client.requests.Session.request')
+    def test_close_during_backoff_aborts_remaining_retries(self, mock_request):
+        """Issue #30: close() landing while a request is asleep between
+        retries must stop the retry loop instead of letting it wake up and
+        open a fresh connection on a session whose owner already tore it
+        down.
+
+        Deterministic via thread-coordination events, not sleep-based timing
+        races: the patched time.sleep() signals that the request has entered
+        its backoff window, blocks a background thread does close() and
+        signals back, and only then does the patched sleep return -- so the
+        interleaving (close() lands strictly between attempt 1 and the retry
+        that would otherwise be attempt 2) is guaranteed on every run.
+        """
+        client = SleeperClient(max_retries=3, initial_backoff=0.01)
+
+        retryable = Mock()
+        retryable.headers = {}
+        retryable.status_code = 503
+        retryable.ok = False
+        retryable.text = "Service Unavailable"
+        mock_request.return_value = retryable
+
+        entered_backoff = threading.Event()
+        closed = threading.Event()
+
+        def fake_sleep(_seconds):
+            entered_backoff.set()
+            # Do not return (and let the loop retry) until close() has
+            # actually landed from the other thread.
+            self.assertTrue(closed.wait(timeout=5), "closer thread never ran")
+
+        def closer():
+            self.assertTrue(
+                entered_backoff.wait(timeout=5),
+                "request never reached the backoff window"
+            )
+            client.close()
+            closed.set()
+
+        closer_thread = threading.Thread(target=closer)
+
+        with patch('sleeper_api.client.time.sleep', side_effect=fake_sleep):
+            closer_thread.start()
+            with self.assertRaises(RuntimeError) as ctx:
+                client.get('flaky-endpoint')
+            closer_thread.join(timeout=5)
+
+        self.assertIn("closed", str(ctx.exception))
+        self.assertFalse(closer_thread.is_alive())
+        # Exactly one request went out (the one that got the 503 and hit the
+        # backoff where close() landed). The bug this guards against is a
+        # second (or third, or fourth) request going out after close().
+        self.assertEqual(mock_request.call_count, 1)
+
+    @patch('sleeper_api.client.time.sleep')
+    @patch('sleeper_api.client.requests.Session.request')
+    def test_close_before_any_retry_still_raises_on_entry(self, mock_request, mock_sleep):
+        # The entry check and the recheck-per-iteration in #30's fix share
+        # one code path (_check_not_closed). This confirms that sharing it
+        # didn't change entry-check behavior: a client closed before the
+        # call is made still raises immediately, with no request attempted.
+        self.client.close()
+        with self.assertRaises(RuntimeError):
+            self.client.get('some-endpoint')
+        mock_request.assert_not_called()
+        mock_sleep.assert_not_called()
 
 
 class TestParseRetryAfter(unittest.TestCase):
