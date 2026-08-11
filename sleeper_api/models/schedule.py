@@ -113,7 +113,7 @@ class ScheduleGameModel:
             'season_type': self.season_type
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<ScheduleGameModel(game_id={self.game_id}, week={self.week}, "
                 f"{self.away}@{self.home}, status={self.status})>")
 
@@ -194,5 +194,5 @@ class NFLScheduleModel:
             'games': [game.to_dict() for game in self.games]
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<NFLScheduleModel(year={self.year}, season_type={self.season_type}, games={len(self.games)})>"

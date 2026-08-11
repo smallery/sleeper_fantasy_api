@@ -159,5 +159,5 @@ class LeagueModel:
             previous_league_id=data.get('previous_league_id'),
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<LeagueModel(name={self.name}, season={self.season}, league_id={self.league_id})>"

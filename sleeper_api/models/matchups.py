@@ -88,6 +88,6 @@ class MatchupModel:
             'custom_points': self.custom_points
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<MatchupModel(matchup_id={self.matchup_id}, roster_id={self.roster_id}, "
                 f"points={self.points}, custom_points={self.custom_points})>")

@@ -59,7 +59,7 @@ class PickMetadata:
             'first_name': self.first_name
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<PickMetadata(player_id={self.player_id}, team={self.team}, "
                 f"status={self.status}, position={self.position})>")
 
@@ -111,7 +111,7 @@ class PicksModel:
         return f"{self.metadata.first_name} {self.metadata.last_name}"
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]):
+    def from_dict(cls, data: Dict[str, Any]) -> "PicksModel":
         # `data` genuinely mixes str/int/bool/None/dict values across keys; a
         # single Union[...] applied to every value (the previous annotation)
         # made mypy reject perfectly valid per-field assignments below since
@@ -149,7 +149,7 @@ class PicksModel:
         """
         return [cls.from_dict(data) for data in data_list]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<Pick(player_id={self.player_id}, player_name={self.player_name}, "
                 f"round={self.round}, picked_by={self.picked_by}, "
                 f"pick_no={self.pick_no}, roster_id={self.roster_id})>")

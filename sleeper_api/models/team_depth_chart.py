@@ -231,7 +231,7 @@ class TeamDepthChartModel:
 
         return {pos: (players[0] if players else None) for pos, players in positions.items()}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         starter_count = sum(1 for players in [
             self.qb, self.rb, self.wr1, self.wr2, self.wr3, self.te,
             self.k, self.p, self.lde, self.rde, self.ldt, self.rdt,

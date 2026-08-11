@@ -330,3 +330,37 @@ class TestRemainingNoneSites(unittest.TestCase):
                          "SleeperClient")
         self.assertIsNot(inspect.signature(SleeperClient.__exit__).return_annotation,
                          inspect.Signature.empty)
+
+
+class TestNoUnannotatedExports(unittest.TestCase):
+    """Nothing exported from `sleeper_api` may lack a return annotation.
+
+    Three separate hand-written sweeps each missed a category -- endpoint
+    collections only, then non-dunders only, then endpoints but never the
+    models. This asserts the property over `__all__` instead, so a new export
+    cannot quietly reintroduce an `Any` at the package boundary.
+    """
+
+    def test_every_exported_callable_is_annotated(self):
+        import inspect
+        import sleeper_api
+
+        skip = {"__init__", "__init_subclass__", "__subclasshook__", "__new__"}
+        gaps = []
+        for name in sleeper_api.__all__:
+            obj = getattr(sleeper_api, name)
+            if not inspect.isclass(obj):
+                continue
+            for attr, func in inspect.getmembers(obj, inspect.isfunction):
+                if attr in skip:
+                    continue
+                if attr.startswith("_") and not (attr.startswith("__") and attr.endswith("__")):
+                    continue
+                try:
+                    sig = inspect.signature(func)
+                except (ValueError, TypeError):
+                    continue
+                if sig.return_annotation is inspect.Signature.empty:
+                    gaps.append(f"{name}.{attr}")
+        self.assertEqual(gaps, [], f"unannotated exported callables: {gaps}")
+

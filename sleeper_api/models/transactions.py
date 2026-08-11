@@ -32,7 +32,7 @@ class DraftPick:
             'owner_id': self.owner_id
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<DraftPick(season={self.season}, round={self.round}, roster_id={self.roster_id}, "
                 f"previous_owner_id={self.previous_owner_id}, owner_id={self.owner_id})>")
 
@@ -58,7 +58,7 @@ class WaiverBudgetTransfer:
             'amount': self.amount
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<WaiverBudgetTransfer(sender={self.sender}, receiver={self.receiver}, amount={self.amount})>"
 
 
@@ -146,6 +146,6 @@ class TransactionsModel:
             'adds': self.adds,
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<TransactionsModel(transaction_id={self.transaction_id}, type={self.transaction_type}, "
                 f"status={self.status}, roster_ids={self.roster_ids}, leg={self.leg})>")

@@ -46,7 +46,7 @@ class TradedPickModel:
             'owner_id': self.owner_id
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<TradedPickModel(season={self.season}, round={self.round}, roster_id={self.roster_id}, "
                 f"previous_owner_id={self.previous_owner_id}, owner_id={self.owner_id})>")
 

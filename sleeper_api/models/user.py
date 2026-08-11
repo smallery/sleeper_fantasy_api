@@ -51,7 +51,7 @@ class UserModel:
         self.nfl_leagues: List[LeagueModel] = []
 
     @classmethod
-    def from_json(cls, data: dict):
+    def from_json(cls, data: dict) -> "UserModel":
         """
         Create a UserModel instance from a JSON dictionary.
 
@@ -65,5 +65,5 @@ class UserModel:
             avatar=data.get("avatar")
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<UserModel(username={self.username}, user_id={self.user_id}, display_name={self.display_name})>"

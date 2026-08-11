@@ -61,7 +61,7 @@ class BracketModel:
             'p': self.position
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<BracketModel(round={self.round}, match={self.match_id}, roster1={self.team1}, "
             f"roster2={self.team2}, winner={self.winner}, loser={self.loser}, position={self.position})>"

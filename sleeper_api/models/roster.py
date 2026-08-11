@@ -99,6 +99,6 @@ class RosterModel:
             'league_id': self.league_id
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<RosterModel(roster_id={self.roster_id}, owner_id={self.owner_id}, league_id={self.league_id})>")
 

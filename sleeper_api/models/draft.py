@@ -31,7 +31,7 @@ class DraftModel:
         self.picks = picks or []
 
     @classmethod
-    def from_json(cls, data: Dict):
+    def from_json(cls, data: Dict) -> "DraftModel":
 
         # Check if required fields are present. draft_order is deliberately
         # NOT in this list: Sleeper returns draft_order=null for any
@@ -58,5 +58,5 @@ class DraftModel:
             picks=data.get('picks', [])
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"<DraftModel(draft_id={self.draft_id}, league_id={self.league_id}, season={self.season})>"
