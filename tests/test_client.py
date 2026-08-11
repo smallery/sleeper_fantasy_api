@@ -1,4 +1,5 @@
 import threading
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -499,47 +500,104 @@ if __name__ == '__main__':
 
 
 class TestCloseRaceWithInFlightRequest(unittest.TestCase):
-    """close() must not release the session under a request already on the wire.
+    """close() lifecycle: no request may start after close, and the drain is opt-in.
 
     Checking `_closed` and starting the request used to be two separate steps,
     so close() could complete in the gap and requests would open a fresh socket
-    on the closed adapter -- the exact thing the flag exists to prevent.
+    on the closed adapter. Draining in-flight work fixes that fully, but it must
+    not be the default -- the documented `with SleeperClient()` +
+    asyncio.to_thread pattern unwinds the context manager on the event loop, so
+    a blocking drain there would stall every other task on that loop.
     """
 
-    def test_close_waits_for_an_in_flight_request(self):
+    def _parked_client(self):
+        """A client whose next request blocks until the returned event is set."""
         client = SleeperClient()
-        entered = threading.Event()
-        release = threading.Event()
-        closed_while_inflight = []
+        entered, release, saw = threading.Event(), threading.Event(), []
 
         def slow_request(*a, **k):
             entered.set()
             release.wait(5)
-            # If close() had already finished, the session would be released
-            # out from under this call.
-            closed_while_inflight.append(client.session.adapters == {})
+            saw.append(client.session.adapters == {})
             r = Mock()
             r.status_code, r.ok, r.headers = 200, True, {}
             r.json.return_value = {"ok": True}
             return r
 
         client.session.request = slow_request
+        return client, entered, release, saw
+
+    def test_close_does_not_block_by_default(self):
+        # The event-loop safety property: unwinding a `with` block must not
+        # wait on a worker thread's request.
+        client, entered, release, _ = self._parked_client()
         worker = threading.Thread(target=lambda: client.get("state/nfl"))
         worker.start()
-        self.assertTrue(entered.wait(5), "request never started")
+        self.assertTrue(entered.wait(5))
 
-        closer = threading.Thread(target=client.close)
+        t0 = time.monotonic()
+        client.close()
+        elapsed = time.monotonic() - t0
+        self.assertLess(elapsed, 0.5, "default close() blocked on an in-flight request")
+
+        release.set()
+        worker.join(5)
+
+    def test_close_with_drain_waits_for_the_in_flight_request(self):
+        client, entered, release, saw = self._parked_client()
+        worker = threading.Thread(target=lambda: client.get("state/nfl"))
+        worker.start()
+        self.assertTrue(entered.wait(5))
+
+        closer = threading.Thread(target=lambda: client.close(drain=5))
         closer.start()
-        # close() must block while the request is in flight.
         closer.join(timeout=0.3)
-        self.assertTrue(closer.is_alive(), "close() returned while a request was in flight")
+        self.assertTrue(closer.is_alive(), "close(drain=...) returned mid-flight")
 
         release.set()
         worker.join(5)
         closer.join(5)
         self.assertFalse(closer.is_alive())
-        self.assertEqual(closed_while_inflight, [False],
-                         "session was released before the in-flight request finished")
+        self.assertEqual(saw, [False], "session released before the request finished")
+
+    def test_second_draining_close_waits_for_the_first_to_release(self):
+        # `_closed` only means "no new requests" -- a second caller that asked
+        # to wait must wait for the session to actually be released.
+        client, entered, release, _ = self._parked_client()
+        worker = threading.Thread(target=lambda: client.get("state/nfl"))
+        worker.start()
+        self.assertTrue(entered.wait(5))
+
+        first = threading.Thread(target=lambda: client.close(drain=5))
+        first.start()
+        time.sleep(0.1)                      # let `first` claim the close
+        second_returned = threading.Event()
+
+        def second_close():
+            client.close(drain=5)
+            second_returned.set()
+
+        threading.Thread(target=second_close).start()
+        self.assertFalse(second_returned.wait(0.3),
+                         "second close(drain=...) returned before the session was released")
+
+        release.set()
+        worker.join(5)
+        first.join(5)
+        self.assertTrue(second_returned.wait(5))
+
+    def test_drain_is_bounded(self):
+        client, entered, release, _ = self._parked_client()
+        worker = threading.Thread(target=lambda: client.get("state/nfl"))
+        worker.start()
+        self.assertTrue(entered.wait(5))
+
+        t0 = time.monotonic()
+        client.close(drain=0.2)
+        self.assertLess(time.monotonic() - t0, 2.0, "close() ignored its drain budget")
+
+        release.set()
+        worker.join(5)
 
     def test_request_starting_after_close_is_refused(self):
         client = SleeperClient()

@@ -21,9 +21,8 @@ from .exceptions import RateLimitError, SleeperAPIError
 
 logger = logging.getLogger(__name__)
 
-# How long close() waits for in-flight requests to finish before releasing
-# the session anyway. Bounded so a hung request cannot make close() block
-# forever during an orderly shutdown.
+# Default upper bound for close(drain=...) when a caller opts into waiting.
+# Bounded so a hung request cannot make close() block forever.
 CLOSE_DRAIN_TIMEOUT_SECONDS = 30.0
 
 # Status codes worth retrying: 429 is Sleeper rate limiting, the 5xx set is
@@ -156,34 +155,68 @@ class SleeperClient:
         # serialized.
         self._lifecycle = threading.Condition()
         self._inflight = 0
+        self._released = False
 
-    def close(self) -> None:
+    def close(self, drain: float = 0.0) -> None:
         """
         Release the underlying HTTP session and its connection pool.
 
-        Idempotent -- calling this more than once (or on a client that was
-        never used) is a no-op after the first call.
+        Returns immediately by default. Marking the client closed already
+        stops any *new* request from starting (see :meth:`_request`), so the
+        common case needs no waiting.
+
+        :param drain: Seconds to wait for requests already on the wire to
+            finish before releasing the session. Defaults to 0 -- **do not
+            raise it on a thread you cannot afford to block**. In particular
+            the documented `with SleeperClient()` + ``asyncio.to_thread``
+            pattern unwinds the context manager on the event loop itself, so
+            a blocking drain there would stall every other task on that loop
+            for the duration -- defeating the point of moving the call to a
+            worker thread. Capped at CLOSE_DRAIN_TIMEOUT_SECONDS.
+
+        Idempotent. A caller that passes ``drain`` while another thread is
+        already closing waits for that close to actually release the session,
+        rather than returning early on a flag that only means "closing".
         """
+        wait_budget = min(max(drain, 0.0), CLOSE_DRAIN_TIMEOUT_SECONDS)
+
         with self._lifecycle:
             if self._closed:
+                # Someone else is closing, or already has. `_closed` alone
+                # only means "no new requests"; the session may still be in
+                # the process of being released, so a caller that asked to
+                # wait must wait for `_released`, not for the flag it already
+                # sees set.
+                if wait_budget:
+                    self._wait_until(lambda: self._released, wait_budget)
                 return
-            # Mark closed first so no *new* request can register, then wait
-            # for the ones already in flight. Closing the session first (as
-            # this used to) left already-running requests to fail in
-            # confusing ways, or to quietly reopen sockets after cleanup.
+
             self._closed = True
-            deadline = time.monotonic() + CLOSE_DRAIN_TIMEOUT_SECONDS
-            while self._inflight:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
+            if wait_budget:
+                if not self._wait_until(lambda: self._inflight == 0, wait_budget):
                     logger.warning(
-                        f"close() timed out after {CLOSE_DRAIN_TIMEOUT_SECONDS}s "
-                        f"with {self._inflight} request(s) still in flight; "
-                        f"releasing the session anyway"
+                        f"close(drain={drain}) gave up with {self._inflight} "
+                        f"request(s) still in flight; releasing the session anyway"
                     )
-                    break
-                self._lifecycle.wait(remaining)
+
         self.session.close()
+        with self._lifecycle:
+            self._released = True
+            self._lifecycle.notify_all()
+
+    def _wait_until(self, predicate, budget):
+        """
+        Wait for `predicate` under `_lifecycle`, up to `budget` seconds.
+
+        :return: True if the predicate held before the budget ran out.
+        """
+        deadline = time.monotonic() + budget
+        while not predicate():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._lifecycle.wait(remaining)
+        return True
 
     def __enter__(self) -> "SleeperClient":
         return self
