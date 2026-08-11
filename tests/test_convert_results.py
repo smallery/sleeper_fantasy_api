@@ -278,3 +278,55 @@ class TestScalarLookupOn404(unittest.TestCase):
                     DraftEndpoint(client).get_draft_by_id("missing-id")
                 self.assertEqual(ctx.exception.status_code, 404)
                 self.assertIn("missing-id", str(ctx.exception))
+
+
+class TestRemainingNoneSites(unittest.TestCase):
+    """Every remaining client.get() site handles a 404 deliberately.
+
+    Two earlier sweeps missed these: the collection sweep only matched methods
+    returning lists, and NFLEndpoint's try/except shape defeated the regex.
+    """
+
+    def _client(self, convert):
+        c = MagicMock()
+        c.convert_results = convert
+        c.get.return_value = None
+        return c
+
+    def test_named_resources_raise(self):
+        from sleeper_api.endpoints.nfl_endpoint import NFLEndpoint
+        for convert in (True, False):
+            with self.subTest(convert_results=convert, method="get_team_depth_chart"):
+                with self.assertRaises(SleeperAPIError):
+                    NFLEndpoint(self._client(convert)).get_team_depth_chart("ZZZ")
+            with self.subTest(convert_results=convert, method="get_nfl_state"):
+                with self.assertRaises(SleeperAPIError):
+                    LeagueEndpoint(self._client(convert)).get_nfl_state()
+
+    def test_schedule_returns_an_empty_collection(self):
+        from sleeper_api.endpoints.nfl_endpoint import NFLEndpoint
+        raw = NFLEndpoint(self._client(False)).get_schedule(2026)
+        self.assertEqual(raw, [])
+        model = NFLEndpoint(self._client(True)).get_schedule(2026)
+        self.assertEqual(model.games, [])
+
+    def test_scoring_type_falls_back_instead_of_raising_attributeerror(self):
+        from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
+        from sleeper_api.persistent_cache import PersistentCache
+        cache = MagicMock(spec=PersistentCache)
+        cache.get.return_value = None
+        self.assertEqual(
+            ProjectionsEndpoint(self._client(True), cache).get_scoring_type("missing"),
+            "pts_half_ppr",
+        )
+
+    def test_context_manager_is_annotated_for_downstream_checkers(self):
+        # The README's primary pattern is `with SleeperClient() as client:`.
+        # Without these annotations mypy binds `client` as Any and every result
+        # reached through it goes unchecked.
+        import inspect
+        from sleeper_api.client import SleeperClient
+        self.assertEqual(inspect.signature(SleeperClient.__enter__).return_annotation,
+                         "SleeperClient")
+        self.assertIsNot(inspect.signature(SleeperClient.__exit__).return_annotation,
+                         inspect.Signature.empty)

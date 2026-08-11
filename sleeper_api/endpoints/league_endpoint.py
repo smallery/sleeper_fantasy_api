@@ -8,7 +8,7 @@ It supports optional conversion of results into model instances.
 """
 from typing import Any, Dict, List, Literal, Optional, Union, cast, overload
 
-from ..exceptions import LeagueNotFoundError
+from ..exceptions import LeagueNotFoundError, SleeperAPIError
 from ..models.brackets import BracketModel
 from ..models.league import LeagueModel
 from ..models.matchups import MatchupModel
@@ -423,6 +423,12 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = "state/nfl"
         state_data = self.client.get(endpoint)
+
+        # /state/nfl is a singleton -- a 404 here means the call failed, not
+        # "no state". Raise rather than return None against the declared type
+        # or crash inside NFLStateModel.from_dict().
+        if state_data is None:
+            raise SleeperAPIError("NFL state unavailable", status_code=404)
 
         if not convert_results:
             return state_data

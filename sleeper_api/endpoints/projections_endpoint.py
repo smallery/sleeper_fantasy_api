@@ -297,6 +297,13 @@ class ProjectionsEndpoint:
             endpoint = f"league/{league_id}"
             data = self.client.get(endpoint)
 
+            # A missing league 404s to None. This method already degrades to a
+            # sensible default on SleeperAPIError; None used to slip past that
+            # as an AttributeError on the next line instead.
+            if data is None:
+                logger.warning(f"No league data for {league_id}; defaulting scoring type")
+                return "pts_half_ppr"
+
             scoring_settings = data.get("scoring_settings", {})
             rec_points = scoring_settings.get("rec", 0.0)
 

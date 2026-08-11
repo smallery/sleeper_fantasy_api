@@ -99,6 +99,13 @@ class NFLEndpoint:
             logger.error(f"Failed to fetch depth chart for team {team}: {e}")
             raise
 
+        # An unknown team abbreviation 404s, which the client surfaces as None.
+        # The caller named one specific team, so treat the miss as not-found
+        # rather than returning None against the declared dict or crashing in
+        # TeamDepthChartModel.from_dict(None, ...).
+        if depth_chart_data is None:
+            raise SleeperAPIError(f"No depth chart for team '{team}'", status_code=404)
+
         if not convert_results:
             return depth_chart_data
 
@@ -182,6 +189,14 @@ class NFLEndpoint:
         except SleeperAPIError as e:
             logger.error(f"Failed to fetch {season_type} schedule for {year}: {e}")
             raise
+
+        # A season whose schedule is not published yet 404s. This is a
+        # collection, so return an empty one -- consistent with the other
+        # collection endpoints -- rather than leaking None or crashing in
+        # NFLScheduleModel.from_list(None).
+        if schedule_data is None:
+            return (NFLScheduleModel.from_list([], year=year, season_type=season_type)
+                    if convert_results else [])
 
         if not convert_results:
             return schedule_data

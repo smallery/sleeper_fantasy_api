@@ -10,7 +10,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -152,10 +152,10 @@ class SleeperClient:
         self.session.close()
         self._closed = True
 
-    def __enter__(self):
+    def __enter__(self) -> "SleeperClient":
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         # Always close on the way out, including when the with-block raised.
         # Returning False (not the exception) means we never suppress it --
         # closing the connection is a cleanup step, not error handling.
