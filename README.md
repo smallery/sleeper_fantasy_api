@@ -172,12 +172,33 @@ async def get_user(client: SleeperClient, username: str):
 async def main():
     # `with` guarantees the session is released even if the request raises --
     # on an exceptional exit a bare client.close() at the end would be skipped.
+    # See the cancellation caveat below before using this shape in a service.
     with SleeperClient() as client:
         user = await get_user(client, "your_username")
         print(f"User: {user.display_name}")
 
 asyncio.run(main())
 ```
+
+**Cancellation caveat: don't close a client out from under a running worker.**
+Cancelling an `await asyncio.to_thread(...)` — via `asyncio.wait_for`, a
+timeout, or task cancellation — abandons the *awaitable*, but it cannot stop
+the worker thread, which keeps running the request to completion. If that
+cancellation also unwinds a `with SleeperClient()` block, the client is closed
+while the worker is still using it. A *new* request from that worker fails
+fast with `RuntimeError` (the closed-client guard), which is noisy but safe.
+A request already inside its retry loop is the sharper case: the closed check
+runs when a request starts, not between retries, so it can open a fresh
+connection *after* `close()`.
+
+The `with` form above is fine for a script that runs to completion, which is
+the common case and why it's shown first. But **if anything in your program can
+cancel or time out these calls, use a long-lived client** whose shutdown cannot
+race outstanding work — hold it for the life of the process and close it once,
+during orderly shutdown, as in the FastAPI example below. If you must scope a
+client narrowly under cancellation, keep a reference to the task and await it
+(or `asyncio.shield` it) before leaving the block, so no worker outlives the
+session it is using.
 
 `asyncio.to_thread` requires Python 3.9+; since this package requires
 3.10+, prefer it over the older, more verbose
