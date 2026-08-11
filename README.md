@@ -216,13 +216,30 @@ what makes the thread-pool fan-out fast in the first place; a fresh client
 per request throws that away regardless of whether the call is wrapped in
 `asyncio.to_thread`.
 
+A complete FastAPI application, using a lifespan handler to build the client
+once at startup and close it at shutdown:
+
 ```python
-# e.g. FastAPI lifespan
+import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+
+from sleeper_api.client import SleeperClient
+from sleeper_api.endpoints.user_endpoint import UserEndpoint
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # One client for the life of the process, so the connection pool stays warm.
     app.state.sleeper = SleeperClient()
     yield
     app.state.sleeper.close()
+
+
+# The lifespan handler only runs if it is registered here.
+app = FastAPI(lifespan=lifespan)
+
 
 @app.get("/user/{username}")
 async def get_user(username: str, request: Request):
