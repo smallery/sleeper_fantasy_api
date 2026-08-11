@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ~0.3s against ~0.03s for a warm request, so over a cold pool with only a few
   weeks the fan-out can be a wash or slightly slower. See the method docstring.
 
+- `examples/example_projections_usage.py` now demonstrates concurrent
+  multi-week fetching and per-player week-over-week tracking.
 - Python 3.13 added to the CI matrix, and explicit 3.10-3.13 classifiers so
   supported versions are visible on PyPI. `requires-python` is unchanged (`>=3.10`).
 - `pip-audit` added to `requirements-dev.txt` — it could not be installed
@@ -97,6 +99,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reachable as soon as `max_workers > 1`.
 - Replaced the deprecated `requests.packages.urllib3` import path (removed
   along with the adapter-level `Retry`).
+- **`examples/example_projections_usage.py` could not run at all.** It called
+  `UserEndpoint.get_leagues()`, which has never existed (the method is
+  `fetch_nfl_leagues()`), and then treated the returned `LeagueModel` objects as
+  dicts. It also fetched projections for the current week, which returns nothing
+  during preseason, and ended on an emoji that raises `UnicodeEncodeError` on a
+  cp1252 Windows console. Now verified end-to-end against the live API.
 
 ## [0.3.0] - 2026-01-15
 
