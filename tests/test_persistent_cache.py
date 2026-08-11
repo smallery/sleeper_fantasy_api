@@ -446,3 +446,149 @@ class TestPersistentCache:
             assert (temp_cache_dir / f"{key}.meta").exists()
         # The legacy index itself must still be valid JSON (not truncated/corrupted).
         json.loads((temp_cache_dir / "cache_metadata.json").read_text())
+
+    def test_concurrent_get_during_set_publish_window_does_not_lose_data(
+        self, cache, temp_cache_dir, monkeypatch
+    ):
+        """Regression test for PR #26 review finding 1.
+
+        set() writes the data file, then (previously) released the lock
+        boundary before writing the sidecar metadata. A get() landing in
+        that gap saw a data file with no metadata anywhere -- indistinguishable
+        from a true orphan -- and the #14 fail-closed path deleted the data
+        file this very set() had just written. set() then wrote its sidecar
+        for a file that no longer existed and returned success: a completed
+        write silently discarded.
+
+        Deterministically forces that interleaving via a monkeypatched hook
+        (`_after_data_write`, a no-op test seam called mid-set(), after the
+        data write and before the sidecar write) instead of sleeps, so this
+        cannot be flaky in CI. The hook fires at the same point in the
+        function regardless of the fix; what changes is whether it fires
+        while `_METADATA_LOCK` is held. If the lock now spans both writes
+        (the fix), a concurrent get() attempting to acquire it blocks until
+        set() finishes publishing -- so it can never observe, and therefore
+        never delete, the half-published entry.
+        """
+        # Arrange
+        key = "race_key"
+        value = {"data": "value"}
+
+        data_written = threading.Event()
+        proceed_with_meta = threading.Event()
+
+        def hook(self):
+            data_written.set()
+            # If the lock is held here (the fix), a concurrent get() cannot
+            # make progress until proceed_with_meta is set below and this
+            # hook returns. If the lock is NOT held here (the bug), a
+            # concurrent get() runs to completion immediately.
+            proceed_with_meta.wait(timeout=5)
+
+        monkeypatch.setattr(PersistentCache, "_after_data_write", hook)
+
+        get_result = {}
+
+        def setter():
+            cache.set(key, value)
+
+        def getter():
+            get_result["value"] = cache.get(key)
+
+        # Act
+        setter_thread = threading.Thread(target=setter)
+        setter_thread.start()
+        assert data_written.wait(timeout=5), "set() never reached the post-data-write hook"
+
+        # At this instant the data file is on disk but the sidecar is not --
+        # exactly the window finding 1 describes. A get() started now must
+        # not be able to run to completion (and thus must not be able to
+        # wrongly invalidate anything) until set() finishes publishing.
+        getter_thread = threading.Thread(target=getter)
+        getter_thread.start()
+        getter_thread.join(timeout=0.3)
+        assert getter_thread.is_alive(), (
+            "get() completed while set() was still mid-publish -- the "
+            "data-to-metadata publication window is observable as an "
+            "orphan, which is exactly the finding-1 race"
+        )
+
+        proceed_with_meta.set()
+        setter_thread.join(timeout=5)
+        getter_thread.join(timeout=5)
+
+        # Assert -- the write completed successfully and nothing was lost:
+        # the concurrent getter (once unblocked) sees the real value, a
+        # fresh get() sees it too, and the sidecar exists.
+        assert not setter_thread.is_alive()
+        assert not getter_thread.is_alive()
+        assert get_result["value"] == value
+        assert cache.get(key) == value
+        assert (temp_cache_dir / "race_key.meta").exists()
+        assert (temp_cache_dir / "race_key.json").exists()
+
+    def test_corrupt_sidecar_falls_back_to_valid_legacy_entry(self, temp_cache_dir):
+        """Regression test for PR #26 review finding 2.
+
+        Simulates an interrupted migration: a truncated/corrupt <key>.meta
+        sits next to a still-valid legacy cache_metadata.json record for the
+        same key. Metadata lookup must not treat the unreadable sidecar as
+        authoritative absence -- it must fall back to the legacy entry
+        rather than causing get() to delete an otherwise-readable data file.
+        """
+        # Arrange
+        now = datetime.now()
+        legacy_metadata = {
+            "old_key": {
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=1)).isoformat(),
+            }
+        }
+        (temp_cache_dir / "old_key.json").write_text(json.dumps({"data": "legacy_value"}))
+        (temp_cache_dir / "cache_metadata.json").write_text(json.dumps(legacy_metadata))
+        # A sidecar that exists but is truncated/corrupt, as an interrupted
+        # migration write could leave behind.
+        (temp_cache_dir / "old_key.meta").write_text("{not valid json")
+
+        cache = PersistentCache(cache_dir=temp_cache_dir)
+
+        # Act
+        result = cache.get("old_key")
+
+        # Assert -- served from the still-valid legacy entry, not destroyed.
+        assert result == {"data": "legacy_value"}
+        assert (temp_cache_dir / "old_key.json").exists()
+        # The corrupt sidecar should have been repaired (overwritten), not
+        # left truncated.
+        migrated = json.loads((temp_cache_dir / "old_key.meta").read_text())
+        assert migrated["expires_at"] == legacy_metadata["old_key"]["expires_at"]
+
+    def test_get_stats_excludes_invalidated_legacy_only_entry(self, temp_cache_dir):
+        """Regression test for PR #26 review finding 4.
+
+        invalidate() removes a legacy-only key's data file and sidecar but,
+        by design, does not rewrite the shared legacy index (see set()'s
+        comment on why that would reintroduce O(n) cost). get_stats() must
+        not keep counting the entry using the stale legacy record alone.
+        """
+        # Arrange
+        now = datetime.now()
+        legacy_metadata = {
+            "legacy_key": {
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=1)).isoformat(),
+            }
+        }
+        (temp_cache_dir / "legacy_key.json").write_text(json.dumps({"data": "x"}))
+        (temp_cache_dir / "cache_metadata.json").write_text(json.dumps(legacy_metadata))
+
+        cache = PersistentCache(cache_dir=temp_cache_dir)
+        assert cache.get_stats()["entries"] == 1
+
+        # Act -- invalidate the legacy-only entry without ever migrating it
+        # to a sidecar first.
+        cache.invalidate("legacy_key")
+
+        # Assert -- excluded immediately, not counted until the legacy TTL
+        # would otherwise expire and cleanup_expired() sweeps it.
+        assert cache.get_stats()["entries"] == 0

@@ -9,9 +9,17 @@ Cache directories created before this sidecar format existed used a single share
 `cache_metadata.json` indexing every key. That file is still read as a fallback: the
 first access to a not-yet-migrated key transparently promotes its entry to a sidecar
 file. See CHANGELOG for details.
+
+Mixed-version sharing of a cache directory is NOT supported: once a key is migrated
+to a sidecar, this version always prefers the sidecar and never re-consults
+`cache_metadata.json` for that key again, so a write from an older, unmigrated
+process sharing the same directory at the same time is silently ignored. Upgrading
+a cache directory (stop the old version, start this one) is fine; running both at
+once against the same directory is not.
 """
 import json
 import logging
+import os
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -133,27 +141,52 @@ class PersistentCache:
 
     def _write_entry_meta(self, key: str, entry_meta: Dict[str, str]) -> None:
         """
-        Write a key's sidecar metadata file. O(1): touches only this key's file.
+        Write a key's sidecar metadata file atomically. O(1): touches only
+        this key's file.
+
+        Writes to a temp file next to the destination and publishes with
+        `os.replace`, which is atomic on both POSIX and Windows. A reader
+        can therefore only ever observe the fully-old or fully-new sidecar
+        content -- never a truncated/corrupt in-between state, which is
+        what an interrupted direct write (e.g. during migration from the
+        legacy index) could otherwise leave behind. See PR #26 review
+        (finding 2).
 
         Args:
             key: Cache key.
             entry_meta: Metadata dict (created_at / expires_at).
         """
+        meta_path = self._get_meta_path(key)
+        tmp_path = meta_path.with_name(meta_path.name + ".tmp")
         try:
-            with open(self._get_meta_path(key), "w") as f:
+            with open(tmp_path, "w") as f:
                 json.dump(entry_meta, f, indent=2)
+            os.replace(tmp_path, meta_path)
         except IOError as e:
             logger.warning(f"Failed to save cache metadata for key {key}: {e}")
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     def _get_entry_meta(self, key: str) -> Optional[Dict[str, str]]:
         """
         Look up a key's metadata. Caller must hold `_METADATA_LOCK`.
 
-        Checks the key's own sidecar file first (O(1)). If absent, falls back to
-        the legacy shared index for backwards compatibility with cache
-        directories written before the sidecar format existed -- and, on a hit,
-        migrates the entry by writing its sidecar file, so this O(n) fallback is
-        paid at most once per key.
+        Checks the key's own sidecar file first (O(1)). If absent -- or if it
+        exists but is unreadable/corrupt -- falls back to the legacy shared
+        index for backwards compatibility with cache directories written
+        before the sidecar format existed -- and, on a hit, migrates (or
+        re-migrates) the entry by writing its sidecar file, so this O(n)
+        fallback is paid at most once per key.
+
+        An unreadable sidecar is deliberately NOT treated as authoritative
+        absence: if migration was interrupted while writing a sidecar
+        directly to its destination, the legacy index can still hold a
+        perfectly valid entry for the same key. Falling through to check it
+        avoids destroying a readable old-format entry just because the new
+        one it's being promoted to got cut short. See PR #26 review
+        (finding 2).
 
         Args:
             key: Cache key.
@@ -167,8 +200,12 @@ class PersistentCache:
                 with open(meta_path, "r") as f:
                     return json.load(f)
             except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Failed to load cache metadata for key {key}: {e}")
-                return None
+                logger.warning(
+                    f"Failed to load cache metadata for key {key}: {e}; "
+                    "checking legacy index before treating as absent"
+                )
+                # Fall through to the legacy fallback below instead of
+                # returning None here.
 
         legacy_entry = self._load_legacy_metadata().get(key)
         if legacy_entry:
@@ -252,30 +289,72 @@ class PersistentCache:
             logger.warning(f"Failed to serialize cache value for key {key}: {e}")
             return
 
-        try:
-            with open(cache_path, "w") as f:
-                f.write(serialized)
-        except IOError as e:
-            logger.warning(f"Failed to save cache for key {key}: {e}")
-            return
-
-        # Update this key's own metadata sidecar. O(1): unlike the old shared
-        # cache_metadata.json, this never reads or rewrites any other key's
-        # bookkeeping, so cost does not grow with the number of cached entries
-        # (see the set() benchmark in the PR description). We deliberately do
-        # NOT also touch the legacy shared index here -- doing so would read
-        # and rewrite it in full on every set(), reintroducing the exact O(n)
-        # cost this change removes. A stale legacy entry left behind for this
-        # key is harmless: get() always checks the sidecar first, and
-        # cleanup_expired() sweeps stale legacy entries for keys that already
-        # have a sidecar.
         now = datetime.now()
         entry_meta = {
             "created_at": now.isoformat(),
             "expires_at": (now + timedelta(hours=ttl)).isoformat(),
         }
+
+        # Hold the lock across BOTH the data write and the metadata write.
+        #
+        # Without this, the data file is published (becomes visible to
+        # cache_path.exists()) before the lock is even acquired, opening a
+        # window where a concurrent get() can see a data file with no
+        # metadata anywhere -- indistinguishable from a true orphan -- and,
+        # via the #14 fail-closed fix, delete the data file this very set()
+        # just wrote. set() would then go on to write its sidecar for a file
+        # that no longer exists and return successfully, silently discarding
+        # a completed cache write. Holding the lock here makes a concurrent
+        # get() block until the whole publish is done, so it only ever
+        # observes "nothing written yet" (correct: nothing to serve) or
+        # "fully written" -- never the in-between. See PR #26 review
+        # (finding 1).
+        #
+        # This does reintroduce lock contention between set() calls for
+        # *different* keys for the duration of the data-file write (not just
+        # the small sidecar write, as before) -- accepted as the cost of
+        # closing a data-loss race; it does not reintroduce the O(n)
+        # per-entry cost the sidecar split was for; the legacy shared index
+        # (see below) is still never read or rewritten here.
         with _METADATA_LOCK:
+            try:
+                with open(cache_path, "w") as f:
+                    f.write(serialized)
+            except IOError as e:
+                logger.warning(f"Failed to save cache for key {key}: {e}")
+                return
+
+            # Test seam: invoked after the data file is durable but before
+            # the sidecar is written, still holding `_METADATA_LOCK`. No-op
+            # in production. The finding-1 regression test monkeypatches
+            # this to deterministically drive a concurrent get() at exactly
+            # this point and confirm the lock keeps it from observing (and
+            # destroying) the half-published entry.
+            self._after_data_write()
+
+            # Update this key's own metadata sidecar. O(1): unlike the old
+            # shared cache_metadata.json, this never reads or rewrites any
+            # other key's bookkeeping, so cost does not grow with the number
+            # of cached entries (see the set() benchmark in the PR
+            # description). We deliberately do NOT also touch the legacy
+            # shared index here -- doing so would read and rewrite it in
+            # full on every set(), reintroducing the exact O(n) cost this
+            # change removes. A stale legacy entry left behind for this key
+            # is harmless: get() always checks the sidecar first, and
+            # cleanup_expired() sweeps stale legacy entries for keys that
+            # already have a sidecar. (Mixed-version sharing, where an older
+            # process might still be writing that legacy entry, is
+            # unsupported -- see the module docstring.)
             self._write_entry_meta(key, entry_meta)
+
+    def _after_data_write(self) -> None:
+        """
+        Test seam called by set(), while holding `_METADATA_LOCK`, after the
+        data file has been written and before the sidecar metadata is
+        written. No-op in production -- exists purely so tests can
+        deterministically interleave a concurrent get() into this window
+        without relying on sleeps/timing. See PR #26 review (finding 1).
+        """
 
     def _invalidate_locked(self, key: str) -> None:
         """
@@ -450,10 +529,21 @@ class PersistentCache:
         entries = len(counted_safe_keys)
 
         # Count not-yet-migrated legacy entries once each, without double
-        # counting keys that already have a sidecar.
+        # counting keys that already have a sidecar. invalidate() removes a
+        # legacy-only key's data file and sidecar but, by design, does not
+        # rewrite the shared legacy index (see set()'s comment on why
+        # touching it there would reintroduce O(n) cost) -- so a legacy
+        # record can outlive the entry it described. Only count it if its
+        # data file still exists, so an invalidated entry stops being
+        # reported immediately instead of lingering until its legacy TTL
+        # expires and cleanup_expired() sweeps it. See PR #26 review
+        # (finding 4).
         if self._metadata_file.exists():
             for key in self._load_legacy_metadata():
-                if self._safe_key(key) not in counted_safe_keys:
+                safe_key = self._safe_key(key)
+                if safe_key in counted_safe_keys:
+                    continue
+                if (self.cache_dir / f"{safe_key}.json").exists():
                     entries += 1
 
         total_size = 0

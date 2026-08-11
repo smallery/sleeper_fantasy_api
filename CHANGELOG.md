@@ -59,12 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **On-disk format change**: cache directories written by this or earlier
   versions used a single `cache_metadata.json`. That file is still read
   transparently as a fallback -- the first access to a not-yet-migrated key
-  promotes it to a sidecar file -- so existing cache directories keep working
-  without intervention. `cleanup_expired()` also sweeps any entries left behind
-  in the legacy index. No action is required, but a cache directory shared
-  read-only with an older version of this library (rare) would not see new
-  entries written by that older version reflected in the new sidecar files
-  until this version has also touched them.
+  promotes it to a sidecar file -- so **upgrading** an existing cache
+  directory (stop the old version, start this one) keeps working without
+  intervention, and `cleanup_expired()` sweeps any entries left behind in the
+  legacy index as keys are migrated.
+  **Mixed-version sharing is not supported.** Running an older version of
+  this library against the same cache directory *at the same time* as this
+  version is not a supported configuration: once a key is migrated to a
+  sidecar, this version always prefers the sidecar and never re-consults
+  `cache_metadata.json` for that key again, so a write from an older,
+  unmigrated process sharing the directory concurrently is silently ignored
+  -- it can serve that key's data past the TTL the older process requested,
+  or drop a refresh the older process just wrote. Upgrade every consumer of
+  a shared cache directory together.
 - **`get()` on an expired entry now reads that key's metadata once, not
   twice.** It previously loaded the metadata, decided the entry was expired,
   then called `invalidate()`, which loaded the same metadata again. Fixed by
@@ -77,6 +84,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stale data) rather than merely lossy. It's now treated as expired: the
   entry is not served, and the orphaned data file is removed so it isn't
   re-evaluated on every future `get()`.
+
+### Fixed
+- **`set()` no longer loses a completed write to a racing `get()`.** The data
+  file was published (visible to `cache_path.exists()`) before `set()`
+  acquired the metadata lock, so a `get()` landing in that window saw a data
+  file with no metadata anywhere and, via the fail-closed change above,
+  deleted the data file this same `set()` had just written; `set()` then
+  wrote its sidecar for a now-missing file and returned success. `set()` now
+  holds the metadata lock across both the data write and the sidecar write,
+  so a concurrent `get()` can only ever observe "nothing written yet" or
+  "fully written," never the in-between.
+- **An unreadable sidecar no longer shadows a valid legacy entry.** If
+  migration to the sidecar format was interrupted while writing a sidecar
+  directly to its destination, the sidecar could be left truncated while
+  `cache_metadata.json` still held a perfectly valid entry for the same key;
+  metadata lookup returned `None` without checking it, and `get()` then
+  deleted the (readable, un-expired) data file. Metadata lookup now falls
+  back to the legacy index when the sidecar can't be read, and sidecar
+  writes (including migration) are now atomic (temp file + `os.replace`, atomic
+  on both POSIX and Windows) so a truncated sidecar can no longer be observed
+  on disk in the first place.
+- **`get_stats()` no longer counts an entry after `invalidate()` removes
+  it.** For a legacy-only (not-yet-migrated) key, `invalidate()` deletes the
+  data file and sidecar but, by design, does not rewrite the shared legacy
+  index (doing so on every `invalidate()` would reintroduce the O(n) cost
+  this release removes) -- so the legacy record could outlive the entry it
+  described and stay counted until its own TTL expired. `get_stats()` now
+  only counts a legacy-only record if its data file still exists.
 
 ## [0.4.0] - 2026-08-10
 
