@@ -1,21 +1,21 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, cast
 
 
 class DraftModel:
     def __init__(
         self,
-        # No `= None` default here: these are required arguments and
-        # DraftModel() must keep raising TypeError for missing arguments,
-        # same as before mypy was added. Optional[...] (without a default)
-        # only describes the *type* -- from_json() supplies these via
-        # data.get(...), which mypy correctly types as Optional since the
-        # Sleeper payload has no schema guarantee -- it does not make the
-        # argument omittable.
-        draft_id: Optional[str],
-        league_id: Optional[str],
-        season: Optional[str],
-        status: Optional[str],
-        draft_order: Optional[Dict[int, str]],
+        # Required and non-Optional. No `= None` default, so DraftModel()
+        # still raises TypeError for missing arguments; and no Optional[...],
+        # because from_json() rejects None for every one of these before it
+        # constructs. Publishing Optional here would force downstream callers
+        # into None guards for a state that cannot exist -- the data.get()
+        # uncertainty is narrowed at the parsing boundary instead (see the
+        # cast(...) calls in from_json).
+        draft_id: str,
+        league_id: str,
+        season: str,
+        status: str,
+        draft_order: Dict[int, str],
         picks: Optional[List[Dict]] = None,
     ):
         self.draft_id = str(draft_id)
@@ -34,12 +34,15 @@ class DraftModel:
             if field not in data or data[field] is None:
                 raise TypeError(f"Missing required field: {field}")
 
+        # The loop above already rejected a missing or None value for each of
+        # these, so cast away the Optional that data.get() implies rather than
+        # widening the constructor's contract to match the parser's ignorance.
         return cls(
-            draft_id=data.get('draft_id'),
-            league_id=data.get('league_id'),
-            season=data.get('season'),
-            status=data.get('status'),
-            draft_order=data.get('draft_order', {}),
+            draft_id=cast(str, data.get('draft_id')),
+            league_id=cast(str, data.get('league_id')),
+            season=cast(str, data.get('season')),
+            status=cast(str, data.get('status')),
+            draft_order=cast(Dict[int, str], data.get('draft_order', {})),
             picks=data.get('picks', [])
         )
 

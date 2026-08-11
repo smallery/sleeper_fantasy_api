@@ -42,8 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   static-typing corrections, not runtime fixes.
 - Removed a dead-code assignment in `UserModel.__init__` (two local variables
   computed and never used).
-- Renamed the ambiguous `l` parameter in `BracketModel.__init__` to `loser`
-  (flagged by ruff's `E741`).
+- Kept the `l` parameter in `BracketModel.__init__` despite ruff's `E741`
+  (ambiguous name), suppressed narrowly with `# noqa: E741`. `BracketModel` is
+  part of the public API, so renaming the keyword would break any caller doing
+  `BracketModel(r=..., m=..., l=...)` — not acceptable in a lint-only change.
 - Reduced `PlayerEndpoint.search_players`'s cyclomatic complexity by
   replacing its comparison-operator `if`/`elif` chain with a dispatch table,
   bringing it under the project's `max-complexity=15` (previously unenforced
