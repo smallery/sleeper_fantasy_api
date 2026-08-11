@@ -170,10 +170,11 @@ async def get_user(client: SleeperClient, username: str):
     return await asyncio.to_thread(user_endpoint.get_user, username)
 
 async def main():
-    client = SleeperClient()
-    user = await get_user(client, "your_username")
-    print(f"User: {user.display_name}")
-    client.close()
+    # `with` guarantees the session is released even if the request raises --
+    # on an exceptional exit a bare client.close() at the end would be skipped.
+    with SleeperClient() as client:
+        user = await get_user(client, "your_username")
+        print(f"User: {user.display_name}")
 
 asyncio.run(main())
 ```
