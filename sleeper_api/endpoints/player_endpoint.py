@@ -190,6 +190,14 @@ class PlayerEndpoint:
         trending_data = self.client.get(
             endpoint, params={"lookback_hours": lookback_hours, "limit": limit}
         )
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if trending_data is None:
+            return []
+
 
         if not convert_results:
             return trending_data

@@ -223,3 +223,35 @@ class TestConvertResultsReadIsStrictForDuckTypedClients(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestCollectionEndpointsOn404(unittest.TestCase):
+    """A 404 collection must be [] on both paths, not None and not a crash.
+
+    SleeperClient.get() returns None for a 404. Twelve collection methods passed
+    that straight through: the raw path returned None against a declared
+    List[...] (a lie the overloads now publish to type checkers), and the
+    convert path raised "'NoneType' object is not iterable" building models.
+    """
+
+    CASES = [
+        (LeagueEndpoint, "get_rosters", ("1",)),
+        (LeagueEndpoint, "get_users", ("1",)),
+        (LeagueEndpoint, "get_matchups", ("1", 1)),
+        (LeagueEndpoint, "get_transactions", ("1", 1)),
+        (LeagueEndpoint, "get_traded_picks", ("1",)),
+        (LeagueEndpoint, "get_winners_bracket", ("1",)),
+        (LeagueEndpoint, "get_losers_bracket", ("1",)),
+        (DraftEndpoint, "get_draft_picks", ("1",)),
+        (DraftEndpoint, "get_drafts_by_league", ("1",)),
+        (DraftEndpoint, "get_traded_picks", ("1",)),
+    ]
+
+    def test_404_yields_an_empty_collection_on_both_paths(self):
+        for cls, name, args in self.CASES:
+            for convert in (True, False):
+                with self.subTest(method=name, convert_results=convert):
+                    client = MagicMock()
+                    client.convert_results = convert
+                    client.get.return_value = None
+                    self.assertEqual(getattr(cls(client), name)(*args), [])

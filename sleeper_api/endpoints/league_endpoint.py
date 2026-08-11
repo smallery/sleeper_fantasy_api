@@ -120,6 +120,14 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/rosters"
         rosters_json = self.client.get(endpoint)
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if rosters_json is None:
+            return []
+
         if not convert_results:
             return rosters_json
 
@@ -149,6 +157,14 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/users"
         users_json = self.client.get(endpoint)
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if users_json is None:
+            return []
+
 
         if not convert_results:
             return users_json
@@ -229,6 +245,15 @@ class LeagueEndpoint:
         endpoint = f"league/{league_id}/matchups/{week}"
         matchup_json = self.client.get(endpoint)
 
+        # Sleeper 404s for a week with no matchups (a bye, or a week that has
+        # not been scheduled), and the client turns that into None. Normalize
+        # to [] rather than leaking None: an empty week is a normal outcome,
+        # so callers should get an empty collection they can iterate. This
+        # also fixes the convert path, which used to raise
+        # "'NoneType' object is not iterable" building the model list.
+        if matchup_json is None:
+            return []
+
         if not convert_results:
             return matchup_json
 
@@ -256,6 +281,14 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/winners_bracket"
         bracket_json = self.client.get(endpoint)
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if bracket_json is None:
+            return []
+
 
         if not convert_results:
             return bracket_json
@@ -284,6 +317,14 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/losers_bracket"
         bracket_json = self.client.get(endpoint)
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if bracket_json is None:
+            return []
+
 
         if not convert_results:
             return bracket_json
@@ -312,6 +353,14 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/transactions/{week}"
         transactions_json = self.client.get(endpoint)
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if transactions_json is None:
+            return []
+
 
         if not convert_results:
             return transactions_json
@@ -340,6 +389,14 @@ class LeagueEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/traded_picks"
         traded_picks_json = self.client.get(endpoint)
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if traded_picks_json is None:
+            return []
+
 
         if not convert_results:
             return traded_picks_json
