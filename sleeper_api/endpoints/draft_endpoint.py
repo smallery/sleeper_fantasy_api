@@ -103,11 +103,17 @@ class DraftEndpoint:
 
         :param season: Defaults to the current season, resolved via
             get_current_season() against GET /state/nfl (not the calendar
-            year -- see issue #18). During preseason that resolves to the
-            *previous* season -- pass season explicitly if you specifically
-            want the upcoming season's draft.
+            year -- see issue #18). Unlike fetch_nfl_leagues()/projections,
+            this defaults to the *upcoming* season during preseason rather
+            than the previous one -- drafts happen during a season's own
+            preseason window, so "the current season" for a draft lookup
+            means the one about to be played. Pass season explicitly to
+            override.
         """
-        season_to_fetch = season if season is not None else get_current_season(self.client)
+        season_to_fetch = (
+            season if season is not None
+            else get_current_season(self.client, prefer_previous_during_preseason=False)
+        )
         endpoint = f"user/{user_id}/drafts/{sport}/{season_to_fetch}"
         drafts_json = self.client.get(endpoint)
 

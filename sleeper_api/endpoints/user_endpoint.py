@@ -62,18 +62,32 @@ class UserEndpoint:
         :param season: The season to retrieve all leagues from. Defaults to
             the current season, resolved via get_current_season() against
             GET /state/nfl (not the calendar year -- see issue #18). During
-            preseason that resolves to the *previous* season, since the
-            upcoming one has no league data yet.
+            preseason that *default* steps back to the previous season,
+            since the upcoming one usually has no league data yet -- but a
+            league for the upcoming season can exist as soon as it's
+            created, so pass season explicitly to fetch it; the validation
+            below always allows whatever season Sleeper currently reports,
+            even though the default prefers the previous one.
         :return: A list of all of the leagues for the given year, or []
             if the user has none.
         :raises: SleeperAPIError if the requested season is out of range.
         """
-        current_season = get_current_season(self.client)
-        season_to_fetch = season if season is not None else current_season
+        default_season = get_current_season(self.client)
+        season_to_fetch = season if season is not None else default_season
         sport = 'nfl'
 
-        if season_to_fetch < 2015 or season_to_fetch > current_season:
-            raise SleeperAPIError(f"Sleeper API only has data from the 2015 season through the {current_season} season.")
+        # The upper bound intentionally does NOT use default_season: during
+        # preseason that value has already been stepped back a year (a
+        # sensible *default* when the caller didn't ask for anything
+        # specific), but the bound must still allow an explicit request for
+        # whatever season /state/nfl actually reports right now -- otherwise
+        # season=<the season Sleeper just told us about> gets rejected before
+        # the request is even made, even though leagues for it can already
+        # exist. (See PR #29 review discussion.)
+        latest_reported_season = get_current_season(self.client, prefer_previous_during_preseason=False)
+
+        if season_to_fetch < 2015 or season_to_fetch > latest_reported_season:
+            raise SleeperAPIError(f"Sleeper API only has data from the 2015 season through the {latest_reported_season} season.")
 
         endpoint = f"user/{user_id}/leagues/{sport}/{season_to_fetch}"
         leagues_data = self.client.get(endpoint)
@@ -94,13 +108,20 @@ class UserEndpoint:
         :param sport: The name of the sport, currently only nfl is supported.
         :param season: The season to retrieve all drafts from. Defaults to
             the current season, resolved via get_current_season() against
-            GET /state/nfl (not the calendar year -- see issue #18). During
-            preseason that resolves to the *previous* season -- pass season
-            explicitly if you specifically want the upcoming season's draft.
+            GET /state/nfl (not the calendar year -- see issue #18).
+            Unlike fetch_nfl_leagues()/projections, this defaults to the
+            *upcoming* season during preseason rather than the previous one
+            -- drafts happen during a season's own preseason window, so
+            "the current season" for a draft lookup means the one about to
+            be played, not the one just finished. Pass season explicitly to
+            override.
         :return: A list of all of the draft models for the given season.
         :raises: SleeperAPIError if no drafts are found.
         """
-        season_to_fetch = season if season is not None else get_current_season(self.client)
+        season_to_fetch = (
+            season if season is not None
+            else get_current_season(self.client, prefer_previous_during_preseason=False)
+        )
         endpoint = f"user/{user_id}/drafts/{sport}/{season_to_fetch}"
         draft_data = self.client.get(endpoint)
 

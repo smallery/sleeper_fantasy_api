@@ -29,16 +29,30 @@ all three change the client/endpoint contract.
   should switch to checking `if not leagues:`.
 - **The default `season` argument on `fetch_nfl_leagues()`, `get_all_drafts()`,
   and `get_drafts_by_user()` no longer uses `datetime.now().year`.** It's
-  now resolved from `GET /state/nfl` (the authoritative source), cached for
-  about an hour instead of frozen once at import time. The old constant was
-  wrong for roughly eight months of every year (an NFL season is labelled
-  by the year it starts) and never updated in a long-running process.
+  now resolved from `GET /state/nfl` (the authoritative source) via the new
+  `sleeper_api.config.get_current_season()`, cached for about an hour
+  instead of frozen once at import time. The old constant was wrong for
+  roughly eight months of every year (an NFL season is labelled by the
+  year it starts) and never updated in a long-running process.
   Practical effect: default-season calls made January-August now correctly
-  target last season's data instead of a season with nothing in it. Also,
-  **during preseason these three methods default to the *previous* season**
-  (the upcoming one Sleeper reports has no data yet) -- pass `season`
-  explicitly if you specifically want the upcoming season. See the
-  README's "Season Defaults" section.
+  target last season's data instead of a season with nothing in it.
+  **Preseason behavior differs per method, deliberately** -- see the
+  README's "Season Defaults" section for the full explanation:
+  - `fetch_nfl_leagues()` defaults to the *previous* season during
+    preseason (the upcoming one usually has no league data yet), but its
+    validation no longer rejects an *explicit* `season` equal to whatever
+    `/state/nfl` currently reports -- only the unspecified-season default
+    prefers last year; a caller who asks for the upcoming season by name is
+    never blocked from getting it.
+  - `get_all_drafts()` and `get_drafts_by_user()` default to the
+    **upcoming** season during preseason, not the previous one -- a
+    season's draft happens during that season's own preseason window, so
+    defaulting to last season would have silently returned last year's
+    (real, existing) drafts instead of a wrong-but-plausible-looking
+    answer. (Caught in review before release -- credit to `@codex`'s pass
+    on this PR.)
+  - Pass `season` explicitly for either method if you want the reading its
+    default doesn't give you.
 - **`SleeperClient(api_key=...)` was removed.** It was accepted, stored, and
   set an `Authorization: Bearer` header, but Sleeper's read API requires no
   authentication and nothing ever used it -- keeping an unused parameter

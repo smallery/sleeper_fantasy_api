@@ -122,6 +122,34 @@ class TestUserEndpoint(unittest.TestCase):
         with self.assertRaises(SleeperAPIError):
             self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2099)
 
+    def test_fetch_nfl_leagues_accepts_explicit_reported_preseason_season(self):
+        # Regression test for PR #29 review Finding 1: during preseason,
+        # /state/nfl reports the *upcoming* season (e.g. 2026) while
+        # get_current_season()'s default steps back to 2025 (the season with
+        # data). The upper-bound check must still accept an explicit
+        # season=2026 -- that's a real season Sleeper reports and leagues for
+        # it can already exist -- rather than rejecting it before the
+        # leagues endpoint is even queried.
+        def fake_get_current_season(client, prefer_previous_during_preseason=True):
+            return 2025 if prefer_previous_during_preseason else 2026
+
+        self.mock_get_current_season.side_effect = fake_get_current_season
+        self.client.get.return_value = []
+
+        # Must not raise.
+        self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2026)
+        self.client.get.assert_called_with("user/12345678/leagues/nfl/2026")
+
+    def test_fetch_nfl_leagues_still_rejects_season_beyond_reported(self):
+        # The bound isn't removed, just corrected to the unadjusted value --
+        # a season further out than what /state/nfl reports is still invalid.
+        def fake_get_current_season(client, prefer_previous_during_preseason=True):
+            return 2025 if prefer_previous_during_preseason else 2026
+
+        self.mock_get_current_season.side_effect = fake_get_current_season
+        with self.assertRaises(SleeperAPIError):
+            self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2027)
+
     def test_get_all_drafts_uses_current_season_by_default(self):
         self.client.get.return_value = []
         with self.assertRaises(SleeperAPIError):
@@ -131,12 +159,34 @@ class TestUserEndpoint(unittest.TestCase):
             # defaulting through to the request URL.
             self.endpoint.get_all_drafts(user_id="12345678")
         self.client.get.assert_called_with("user/12345678/drafts/nfl/2025")
+        # Drafts must resolve "current season" to the upcoming one during
+        # preseason, not the previous one (see PR #29 review, Finding 2).
+        self.mock_get_current_season.assert_called_once_with(
+            self.client, prefer_previous_during_preseason=False
+        )
 
     def test_get_all_drafts_explicit_season_skips_resolution(self):
         self.client.get.return_value = []
         with self.assertRaises(SleeperAPIError):
             self.endpoint.get_all_drafts(user_id="12345678", season=2019)
         self.client.get.assert_called_with("user/12345678/drafts/nfl/2019")
+
+    def test_get_all_drafts_defaults_to_upcoming_season_during_preseason(self):
+        # Regression test for PR #29 review Finding 2: a previous
+        # implementation stepped back to the previous season here during
+        # preseason, silently returning last year's (real, existing) drafts
+        # instead of this season's -- a wrong answer that looks valid because
+        # last season's drafts genuinely exist. Drafts for the upcoming
+        # season happen *during* preseason, so "current season" for a draft
+        # lookup must mean the upcoming one.
+        def fake_get_current_season(client, prefer_previous_during_preseason=True):
+            return 2025 if prefer_previous_during_preseason else 2026
+
+        self.mock_get_current_season.side_effect = fake_get_current_season
+        self.client.get.return_value = []
+        with self.assertRaises(SleeperAPIError):
+            self.endpoint.get_all_drafts(user_id="12345678")
+        self.client.get.assert_called_with("user/12345678/drafts/nfl/2026")
 
 
 if __name__ == '__main__':

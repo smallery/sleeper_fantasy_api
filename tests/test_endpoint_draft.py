@@ -22,8 +22,33 @@ class TestDraftEndpoint(unittest.TestCase):
         ) as mock_get_current_season:
             self.client.get.return_value = []
             self.endpoint.get_drafts_by_user(user_id="12345678")
-            mock_get_current_season.assert_called_once_with(self.client)
+            # Drafts must resolve to the *upcoming* season during preseason,
+            # not the previous one (see PR #29 review, Finding 2) -- a
+            # season's draft happens during that season's own preseason
+            # window, so defaulting to last season would silently return the
+            # wrong (but plausible-looking) drafts.
+            mock_get_current_season.assert_called_once_with(
+                self.client, prefer_previous_during_preseason=False
+            )
             self.client.get.assert_called_with("user/12345678/drafts/nfl/2025")
+
+    def test_get_drafts_by_user_defaults_to_upcoming_season_during_preseason(self):
+        # Regression test for PR #29 review Finding 2: during preseason,
+        # /state/nfl reports the upcoming season (no data yet for most
+        # things), but drafts for that upcoming season are exactly what's
+        # happening *right now*. A previous implementation stepped back to
+        # the previous season here, which silently returned last year's
+        # (real, existing) drafts instead -- a wrong answer that looks valid.
+        def fake_get_current_season(client, prefer_previous_during_preseason=True):
+            return 2025 if prefer_previous_during_preseason else 2026
+
+        with patch(
+            "sleeper_api.endpoints.draft_endpoint.get_current_season",
+            side_effect=fake_get_current_season,
+        ):
+            self.client.get.return_value = []
+            self.endpoint.get_drafts_by_user(user_id="12345678")
+            self.client.get.assert_called_with("user/12345678/drafts/nfl/2026")
 
     def test_get_drafts_by_user_explicit_season_skips_resolution(self):
         with patch(

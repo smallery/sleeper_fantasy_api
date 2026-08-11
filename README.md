@@ -139,19 +139,34 @@ Each endpoint method's docstring says explicitly which behavior it uses.
 
 `fetch_nfl_leagues()`, `get_all_drafts()`, and `get_drafts_by_user()` accept
 an optional `season`; leaving it out resolves "the current season" from
-`GET /state/nfl` (Sleeper's own authoritative source) rather than
+`GET /state/nfl` (Sleeper's own authoritative source) via
+`sleeper_api.config.get_current_season()`, rather than
 `datetime.now().year` -- a season is labelled by the year it *starts*, so the
 calendar year overshoots by one from January through roughly August. The
 resolved value is cached briefly (about an hour), not frozen once per
 process, so a long-running service picks up a season rollover without a
 restart.
 
-**Preseason behavior**: while Sleeper reports `season_type == "pre"`,
-`/state/nfl` names the *upcoming* season, which has no leagues/drafts/data
-yet. These methods default to the *previous* season in that window, since
-that's the one with data. If you specifically want the upcoming season
-(e.g. checking whether this year's draft has been scheduled), pass `season`
-explicitly rather than relying on the default.
+**Preseason behavior is not one rule -- it depends on what the method is
+for.** While Sleeper reports `season_type == "pre"`, `/state/nfl` names the
+*upcoming* season -- the one about to be played, which has no completed-season
+data yet but is exactly when that season's drafts happen:
+
+- **`fetch_nfl_leagues()`** defaults to the *previous* season during
+  preseason -- the upcoming season usually has no league data yet. This is
+  a default only: an explicit `season=<the season /state/nfl just
+  reported>` is always accepted (leagues for it can exist as soon as
+  they're created); only the unspecified-`season` case prefers last year.
+- **`get_all_drafts()` / `get_drafts_by_user()`** default to the *upcoming*
+  season during preseason -- unlike leagues, a season's draft happens
+  during that season's own preseason window, so "the current season" for a
+  draft lookup means the one about to be played. Defaulting these to the
+  previous season would silently return last year's drafts, which usually
+  exist and so look like a valid (but wrong) answer.
+
+If you want the opposite of a given method's default, pass `season`
+explicitly -- `get_current_season(client, prefer_previous_during_preseason=...)`
+is also usable directly if you're building similar logic of your own.
 
 ### Client Lifecycle: Context Manager vs. Long-Lived Client
 
