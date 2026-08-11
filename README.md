@@ -275,7 +275,7 @@ from sleeper_api.client import SleeperClient
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 
 with SleeperClient() as client:
-    user = UserEndpoint(client).get_user("your_username")
+    user = UserEndpoint(client).get_user("your_username", convert_results=True)
     print(f"User: {user.display_name}")
 # session and connection pool are closed here, deterministically
 ```
@@ -296,7 +296,7 @@ one per request.
 client = SleeperClient()
 
 def handle_request(username):
-    return UserEndpoint(client).get_user(username)
+    return UserEndpoint(client).get_user(username, convert_results=True)
 
 # on application shutdown:
 client.close()
@@ -332,7 +332,8 @@ async def get_user(client: SleeperClient, username: str):
     user_endpoint = UserEndpoint(client)
     # runs client.get(...) in a worker thread; the event loop is free
     # for the entire duration of the request
-    return await asyncio.to_thread(user_endpoint.get_user, username)
+    # to_thread forwards kwargs, so the literal still selects the model overload.
+    return await asyncio.to_thread(user_endpoint.get_user, username, convert_results=True)
 
 async def main():
     # `with` guarantees the session is released even if the request raises --
@@ -444,7 +445,7 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/user/{username}")
 async def get_user(username: str, request: Request):
     user_endpoint = UserEndpoint(request.app.state.sleeper)
-    user = await asyncio.to_thread(user_endpoint.get_user, username)
+    user = await asyncio.to_thread(user_endpoint.get_user, username, convert_results=True)
     return {"display_name": user.display_name}
 ```
 
@@ -581,7 +582,7 @@ client = SleeperClient()
 nfl_endpoint = NFLEndpoint(client)
 
 # Get team depth chart
-depth_chart = nfl_endpoint.get_team_depth_chart('SF')
+depth_chart = nfl_endpoint.get_team_depth_chart('SF', convert_results=True)
 print(f"49ers Starting QB: {depth_chart.qb[0]}")  # First QB in depth chart
 print(f"All RBs: {depth_chart.rb}")  # All RBs in depth order
 
@@ -591,7 +592,7 @@ print(f"Starting QB: {starters['QB']}")
 print(f"Starting RBs: {starters['RB']}")
 
 # Get NFL schedule (supports 2009-present)
-schedule = nfl_endpoint.get_schedule(2024, postseason=False)
+schedule = nfl_endpoint.get_schedule(2024, postseason=False, convert_results=True)
 print(f"Total games in 2024: {len(schedule.games)}")
 
 # Get games for a specific week
@@ -604,7 +605,7 @@ sf_games = schedule.get_games_by_team('SF')
 print(f"49ers have {len(sf_games)} games this season")
 
 # Get postseason schedule
-playoffs = nfl_endpoint.get_postseason_schedule(2024)
+playoffs = nfl_endpoint.get_postseason_schedule(2024, convert_results=True)
 print(f"Playoff games: {len(playoffs.games)}")
 ```
 
