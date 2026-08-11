@@ -13,7 +13,7 @@ from .endpoints.projections_endpoint import ProjectionsEndpoint
 from .endpoints.user_endpoint import UserEndpoint
 
 # Import any exceptions you want to expose
-from .exceptions import SleeperAPIError, UserNotFoundError
+from .exceptions import LeagueNotFoundError, RateLimitError, SleeperAPIError, UserNotFoundError
 
 # Import specific data models
 from .models.brackets import BracketModel
@@ -53,6 +53,8 @@ __all__ = [
     "ScheduleGameModel",
     "SleeperAPIError",
     "UserNotFoundError",
+    "LeagueNotFoundError",
+    "RateLimitError",
 ]
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"

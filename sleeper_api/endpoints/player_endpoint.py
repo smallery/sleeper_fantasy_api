@@ -111,21 +111,28 @@ class PlayerEndpoint:
         if trend_type not in ('add', 'drop'):
             raise SleeperAPIError("Trend type must either be add or drop.")
 
-        endpoint = f"players/{sport}/trending/{trend_type}?lookback_hours={lookback_hours}&limit={limit}"
-        trending_data = self.client.get(endpoint)
+        # Query params go through the client's params= (which requests
+        # URL-encodes), not hand-built into the path -- interpolating values
+        # directly into the endpoint string skipped encoding entirely, so any
+        # future string-valued parameter containing '&', '=', or a space
+        # would have corrupted the query (see issue #21).
+        endpoint = f"players/{sport}/trending/{trend_type}"
+        trending_data = self.client.get(
+            endpoint, params={"lookback_hours": lookback_hours, "limit": limit}
+        )
 
         if not convert_results:
             return trending_data
 
-        # If convert_results is True, map the trending data to PlayerModel instances
-        # NOTE: this passes convert_results positionally, which actually lands in
-        # get_all_players' `sport` parameter, not its own convert_results -- a
-        # pre-existing bug left untouched here since fixing it would change
-        # get_all_players' effective sport argument (a behavior change out of
-        # scope for the CI-gate work in issue #20). get_all_players' own
-        # convert_results still defaults to True, so this reliably returns
-        # List[PlayerModel] in practice, which is what the cast below asserts.
-        all_players = cast(List[PlayerModel], self.get_all_players(convert_results))
+        # If convert_results is True, map the trending data to PlayerModel instances.
+        # Both args must be passed as keywords: get_all_players()'s signature is
+        # (sport='nfl', convert_results=CONVERT_RESULTS), so a positional call here
+        # silently landed convert_results in the `sport` slot instead (it went
+        # unnoticed because the cache-hit path never uses `sport`; a cache miss
+        # would have requested players/True from the API). Keyword args also let
+        # trending players for a non-nfl sport get looked up against player data
+        # for the *same* sport, rather than always defaulting to 'nfl'.
+        all_players = self.get_all_players(sport=sport, convert_results=convert_results)
         player_dict = {player.player_id: player for player in all_players}
 
         result = []

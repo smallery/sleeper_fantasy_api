@@ -9,7 +9,7 @@ It supports optional conversion of results into model instances.
 from typing import Any, Dict, List, Union, cast
 
 from ..config import CONVERT_RESULTS
-from ..exceptions import SleeperAPIError
+from ..exceptions import LeagueNotFoundError, SleeperAPIError
 from ..models.brackets import BracketModel
 from ..models.league import LeagueModel
 from ..models.matchups import MatchupModel
@@ -76,11 +76,19 @@ class LeagueEndpoint:
     def get_league_by_id(self, league_id: str) -> LeagueModel:
         """
         Retrieve a specific league by its ID.
+
+        A caller asked about a specific, named league_id -- a 404 means that
+        league does not exist, so this raises LeagueNotFoundError rather
+        than returning None (see issue #17). Contrast with e.g.
+        get_matchups(), where a missing result for a given week is a normal,
+        expected outcome and stays None/empty.
+
+        :raises LeagueNotFoundError: if the given league_id does not exist.
         """
         endpoint = f"league/{league_id}"
         league_data = self.client.get(endpoint)
         if league_data is None:
-            raise SleeperAPIError("League not found")
+            raise LeagueNotFoundError(league_id)
         return LeagueModel.from_json(league_data)
 
     def get_rosters(self, league_id: str, convert_results = CONVERT_RESULTS) -> Union[List[Dict], List[RosterModel]]:
