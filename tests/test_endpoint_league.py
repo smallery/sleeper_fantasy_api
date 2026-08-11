@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
 from sleeper_api.models.league import LeagueModel
 from sleeper_api.models.roster import RosterModel
-from sleeper_api.exceptions import SleeperAPIError
+from sleeper_api.exceptions import SleeperAPIError, LeagueNotFoundError
 
 class TestLeagueEndpoint(unittest.TestCase):
 
@@ -20,12 +20,19 @@ class TestLeagueEndpoint(unittest.TestCase):
         
         self.assertEqual(str(context.exception), "League not found")
 
-    def test_get_league_empty_response(self):
-        # Mock the client to return an empty response
+    def test_get_league_empty_response_raises_league_not_found_error(self):
+        # A caller looked up a specific, named league_id -- a 404 (None from
+        # _handle_response) means that league does not exist, so this raises
+        # LeagueNotFoundError rather than returning None (see issue #17).
         self.client.get.return_value = None
 
-        with self.assertRaises(SleeperAPIError, msg="League not found"):
+        with self.assertRaises(LeagueNotFoundError) as context:
             self.endpoint.get_league_by_id(league_id="empty_league")
+
+        # LeagueNotFoundError is-a SleeperAPIError, so existing callers
+        # catching the base type still work unchanged.
+        self.assertIsInstance(context.exception, SleeperAPIError)
+        self.assertEqual(context.exception.league_id, "empty_league")
 
     def test_get_league_success(self):
         # Mock a valid league response

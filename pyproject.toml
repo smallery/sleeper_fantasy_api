@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sleeper_fantasy_api"
-version = "0.4.0"
+version = "0.5.0"
 description = "A Python wrapper for the Sleeper Fantasy API"
 readme = "README.md"
 authors = [
@@ -56,6 +56,13 @@ dev = [
 [tool.setuptools]
 include-package-data = true
 zip-safe = false
+
+# Declared explicitly (rather than relying on MANIFEST.in) so a `py.typed`
+# marker reaches the wheel as soon as it's added, with no further MANIFEST.in
+# changes needed -- package-data globs that match nothing are simply a no-op,
+# unlike MANIFEST.in's sdist template, which warns on an unmatched pattern.
+[tool.setuptools.package-data]
+sleeper_api = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

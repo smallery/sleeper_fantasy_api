@@ -96,7 +96,6 @@ class SleeperClient:
     """
     def __init__(
         self,
-        api_key = None,
         timeout = 10,
         max_retries = 3,
         initial_backoff = 1.0
@@ -104,13 +103,11 @@ class SleeperClient:
         """
         Initialize the SleeperClient.
 
-        :param api_key: Optional API key for authentication (if required).
         :param timeout: Timeout for requests in seconds.
         :param max_retries: Maximum retry attempts for rate-limited requests.
         :param initial_backoff: Initial backoff time in seconds for exponential backoff.
         """
         self.base_url = BASE_URL
-        self.api_key = api_key # not currently required
         self.timeout = timeout
         self.max_retries = max_retries
         self.initial_backoff = initial_backoff
@@ -119,9 +116,6 @@ class SleeperClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         })
-
-        if self.api_key:
-            self.session.headers.update({'Authorization': f'Bearer {self.api_key}'})
 
         # Tracked separately from the session: requests.Session.close() only
         # clears the underlying connection pools, it does not stop the

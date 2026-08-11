@@ -15,7 +15,12 @@ class DraftModel:
         league_id: str,
         season: str,
         status: str,
-        draft_order: Dict[int, str],
+        # Genuinely optional, not just defensively typed: Sleeper returns
+        # draft_order=null for any 'pre_draft' draft, since the pick order
+        # isn't assigned until the draft actually starts. Annotated as
+        # Optional (rather than typed as required and cast) to reflect that
+        # real contract -- see PR #29 review, Finding 1 on commit 7306e5a.
+        draft_order: Optional[Dict[int, str]] = None,
         picks: Optional[List[Dict]] = None,
     ):
         self.draft_id = str(draft_id)
@@ -28,8 +33,15 @@ class DraftModel:
     @classmethod
     def from_json(cls, data: Dict):
 
-        # Check if required fields are present
-        required_fields = ['draft_id', 'league_id', 'season', 'status', 'draft_order']
+        # Check if required fields are present. draft_order is deliberately
+        # NOT in this list: Sleeper returns draft_order=null for any
+        # 'pre_draft' draft (order isn't assigned until the draft starts),
+        # so treating it as required rejected every not-yet-conducted draft
+        # with a TypeError -- exactly the drafts UserEndpoint.get_all_drafts()
+        # / DraftEndpoint.get_drafts_by_user() now default to fetching during
+        # preseason. __init__ above already coerces a None/missing
+        # draft_order to {}.
+        required_fields = ['draft_id', 'league_id', 'season', 'status']
         for field in required_fields:
             if field not in data or data[field] is None:
                 raise TypeError(f"Missing required field: {field}")
@@ -42,7 +54,7 @@ class DraftModel:
             league_id=cast(str, data.get('league_id')),
             season=cast(str, data.get('season')),
             status=cast(str, data.get('status')),
-            draft_order=cast(Dict[int, str], data.get('draft_order', {})),
+            draft_order=data.get('draft_order'),
             picks=data.get('picks', [])
         )
 

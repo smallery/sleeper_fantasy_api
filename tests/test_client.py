@@ -116,6 +116,18 @@ class TestSleeperClient(unittest.TestCase):
 
         self.assertEqual(mock_request.call_count, self.client.max_retries + 1)
 
+    def test_api_key_constructor_argument_was_removed(self):
+        # Sleeper's read API needs no authentication -- api_key was accepted,
+        # stored, and set an Authorization header, but nothing ever needed
+        # it. Keeping an unused public parameter implies a capability the
+        # API does not have, so it was removed rather than documented as a
+        # no-op (see issue #21). This is a breaking change for 0.5.0.
+        with self.assertRaises(TypeError):
+            SleeperClient(api_key="unused")
+
+    def test_no_authorization_header_is_set(self):
+        self.assertNotIn('Authorization', self.client.session.headers)
+
     def test_adapter_does_not_add_its_own_retries(self):
         # The single retry layer lives in _request; the adapter must not stack
         # another one underneath it.

@@ -1,11 +1,18 @@
 include README.md
-include LICENSE
+include LICENSE.md
 include requirements.txt
-include setup.py
 
-# Include all files in the tests/ directory, excluding __pycache__
-recursive-include tests *
-recursive-exclude tests __pycache__
+# setuptools' manifest_maker seeds its file list from build_py's source
+# files *and* falls back to re-reading a pre-existing SOURCES.txt if one is
+# present, so tests/ can resurface in the sdist even without an explicit
+# `recursive-include tests` line here. Pruning it explicitly is the reliable
+# way to keep it out regardless of how it got added.
+prune tests
+
+# Note: py.typed (PEP 561 marker, added separately) reaches the wheel via
+# [tool.setuptools.package-data] in pyproject.toml, not through this file --
+# that mechanism works whether or not the file exists yet at build time, so
+# there is nothing to add here for it.
 
 # Exclude all __pycache__ directories from the entire package
 global-exclude __pycache__

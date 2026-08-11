@@ -9,9 +9,9 @@ and by user, as well as handling the conversion of results into model instances.
 """
 
 
-from typing import Dict, List, Union, cast
+from typing import Dict, List, Optional, Union, cast
 
-from ..config import CONVERT_RESULTS, DEFAULT_SEASON
+from ..config import CONVERT_RESULTS, get_current_season
 from ..models.draft import DraftModel
 from ..models.picks import PicksModel
 from ..models.traded_picks import TradedPickModel
@@ -36,9 +36,10 @@ class DraftEndpoint:
         into a list of `DraftModel` instances.
 
     - `get_drafts_by_user(
-            user_id: str, sport: str = 'nfl', season: int = DEFAULT_SEASON
+            user_id: str, sport: str = 'nfl', season: Optional[int] = None
             , convert_results: bool = CONVERT_RESULTS) -> List[DraftModel]`:
-        Retrieves all drafts for a specific user in a given season. Optionally converts
+        Retrieves all drafts for a specific user in a given season (defaults to the
+        current season, resolved via GET /state/nfl). Optionally converts
         the results into a list of `DraftModel` instances.
 
     - `get_draft_picks(draft_id: str, convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
@@ -96,12 +97,25 @@ class DraftEndpoint:
         return [DraftModel.from_json(draft) for draft in drafts_json]
 
     def get_drafts_by_user(self, user_id: str, sport: str = 'nfl',
-                           season: int = DEFAULT_SEASON, convert_results = CONVERT_RESULTS
+                           season: Optional[int] = None, convert_results = CONVERT_RESULTS
                            ) -> Union[List[Dict], List[DraftModel]]:
         """
         Retrieve all drafts for a specific user in a given season.
+
+        :param season: Defaults to the current season, resolved via
+            get_current_season() against GET /state/nfl (not the calendar
+            year -- see issue #18). Unlike fetch_nfl_leagues()/projections,
+            this defaults to the *upcoming* season during preseason rather
+            than the previous one -- drafts happen during a season's own
+            preseason window, so "the current season" for a draft lookup
+            means the one about to be played. Pass season explicitly to
+            override.
         """
-        endpoint = f"user/{user_id}/drafts/{sport}/{season}"
+        season_to_fetch = (
+            season if season is not None
+            else get_current_season(self.client, prefer_previous_during_preseason=False)
+        )
+        endpoint = f"user/{user_id}/drafts/{sport}/{season_to_fetch}"
         drafts_json = self.client.get(endpoint)
 
         if not convert_results:

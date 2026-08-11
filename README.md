@@ -17,6 +17,8 @@ H/T to other repos who created similar functions before me:
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+  - [Error Handling](#error-handling)
+  - [Season Defaults: How "Current Season" Is Resolved](#season-defaults-how-current-season-is-resolved)
 - [Endpoints](#endpoints)
 - [Contributing](#contributing)
 - [License](#license)
@@ -73,24 +75,98 @@ Get started with simple user and league queries:
 from sleeper_api.client import SleeperClient
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
+from sleeper_api.exceptions import UserNotFoundError
 
 # Initialize client
 client = SleeperClient()
 user_endpoint = UserEndpoint(client)
 league_endpoint = LeagueEndpoint(client)
 
-# Get user
-user = user_endpoint.get_user("your_username")
-print(f"User: {user.display_name}")
+# Get user. Raises UserNotFoundError if the username/user_id doesn't exist --
+# see "Error Handling" below.
+try:
+    user = user_endpoint.get_user("your_username")
+except UserNotFoundError:
+    print("No such user")
+else:
+    print(f"User: {user.display_name}")
 
-# Get user's leagues for 2024
-leagues = user_endpoint.fetch_nfl_leagues(user.user_id, 2024)
+    # Get user's leagues for 2024. Pass no season to use the current one
+    # instead (resolved from the live NFL state, not the calendar year --
+    # see "Error Handling" below). Returns [] if the user has none.
+    leagues = user_endpoint.fetch_nfl_leagues(user.user_id, 2024)
 
-# Get league details. fetch_nfl_leagues returns LeagueModel objects,
-# so these are attributes rather than dict lookups.
-league = league_endpoint.get_league_by_id(leagues[0].league_id)
-print(f"League: {league.name}")
+    if leagues:
+        # Get league details. fetch_nfl_leagues returns LeagueModel objects,
+        # so these are attributes rather than dict lookups.
+        league = league_endpoint.get_league_by_id(leagues[0].league_id)
+        print(f"League: {league.name}")
 ```
+
+### Error Handling
+
+All exceptions this package raises are exported from the package root:
+
+```python
+from sleeper_api import SleeperAPIError, UserNotFoundError, LeagueNotFoundError, RateLimitError
+```
+
+- **`SleeperAPIError`** -- base class for everything below; also raised
+  directly for non-404 HTTP errors and malformed responses.
+- **`UserNotFoundError`** / **`LeagueNotFoundError`** -- raised by
+  `get_user()` and `get_league_by_id()` when the given username/user_id or
+  league_id doesn't exist. Both are `SleeperAPIError` subclasses, so
+  catching the base type still works.
+- **`RateLimitError`** -- raised when Sleeper rate-limits the client (429)
+  after retries are exhausted.
+
+Not every missing resource raises, though. A 404 from Sleeper is only ever
+*absence*, not failure -- `SleeperClient` returns `None` for it either way.
+Whether an endpoint method turns that `None` into an exception depends on
+what was asked for:
+
+- **Looked up by name/ID** (a specific user, a specific league): the caller
+  asked about a resource that should exist, so a miss is an error --
+  `get_user()` and `get_league_by_id()` raise.
+- **A resource that's normal to have none of** (a user's leagues for a
+  season, a league's matchups for a week): an empty result is expected, not
+  exceptional -- `fetch_nfl_leagues()` returns `[]`, `get_matchups()` returns
+  `None`/`[]`. No exception to catch.
+
+Each endpoint method's docstring says explicitly which behavior it uses.
+
+### Season Defaults: How "Current Season" Is Resolved
+
+`fetch_nfl_leagues()`, `get_all_drafts()`, and `get_drafts_by_user()` accept
+an optional `season`; leaving it out resolves "the current season" from
+`GET /state/nfl` (Sleeper's own authoritative source) via
+`sleeper_api.config.get_current_season()`, rather than
+`datetime.now().year` -- a season is labelled by the year it *starts*, so the
+calendar year overshoots by one from January through roughly August. The
+resolved value is cached briefly (about an hour), not frozen once per
+process, so a long-running service picks up a season rollover without a
+restart.
+
+**Preseason behavior is not one rule -- it depends on what the method is
+for.** While Sleeper reports `season_type == "pre"`, `/state/nfl` names the
+*upcoming* season -- the one about to be played, which has no completed-season
+data yet but is exactly when that season's drafts happen:
+
+- **`fetch_nfl_leagues()`** defaults to the *previous* season during
+  preseason -- the upcoming season usually has no league data yet. This is
+  a default only: an explicit `season=<the season /state/nfl just
+  reported>` is always accepted (leagues for it can exist as soon as
+  they're created); only the unspecified-`season` case prefers last year.
+- **`get_all_drafts()` / `get_drafts_by_user()`** default to the *upcoming*
+  season during preseason -- unlike leagues, a season's draft happens
+  during that season's own preseason window, so "the current season" for a
+  draft lookup means the one about to be played. Defaulting these to the
+  previous season would silently return last year's drafts, which usually
+  exist and so look like a valid (but wrong) answer.
+
+If you want the opposite of a given method's default, pass `season`
+explicitly -- `get_current_season(client, prefer_previous_during_preseason=...)`
+is also usable directly if you're building similar logic of your own.
 
 ### Client Lifecycle: Context Manager vs. Long-Lived Client
 
@@ -565,7 +641,7 @@ no API token stored in this repo or on any developer machine.
 3. Merge to `main`, then tag and push:
 
 ```bash
-git tag v0.4.0 && git push origin v0.4.0
+git tag v0.5.0 && git push origin v0.5.0
 ```
 
 `.github/workflows/publish.yml` then runs the test suite, builds the sdist and

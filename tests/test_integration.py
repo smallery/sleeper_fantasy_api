@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
 from sleeper_api.models.user import UserModel
@@ -12,6 +12,16 @@ class TestIntegration(unittest.TestCase):
         self.client = MagicMock()
         self.user_endpoint = UserEndpoint(self.client)
         self.league_endpoint = LeagueEndpoint(self.client)
+        # fetch_nfl_leagues resolves the current season (for its upper-bound
+        # check) via get_current_season(), which calls client.get("state/nfl")
+        # -- an extra call beyond what these tests' side_effect lists
+        # originally accounted for. Patching it keeps the workflow tests
+        # about user/league wiring rather than season resolution.
+        patcher = patch(
+            "sleeper_api.endpoints.user_endpoint.get_current_season", return_value=2023
+        )
+        self.mock_get_current_season = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_full_user_league_workflow(self):
         # Mock user data response from API
