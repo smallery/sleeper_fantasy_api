@@ -84,10 +84,11 @@ user = user_endpoint.get_user("your_username")
 print(f"User: {user.display_name}")
 
 # Get user's leagues for 2024
-leagues = user_endpoint.get_leagues(user.user_id, 'nfl', '2024')
+leagues = user_endpoint.fetch_nfl_leagues(user.user_id, 2024)
 
-# Get league details
-league = league_endpoint.get_league_by_id(leagues[0]['league_id'])
+# Get league details. fetch_nfl_leagues returns LeagueModel objects,
+# so these are attributes rather than dict lookups.
+league = league_endpoint.get_league_by_id(leagues[0].league_id)
 print(f"League: {league.name}")
 ```
 
