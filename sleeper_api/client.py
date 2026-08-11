@@ -8,6 +8,8 @@ headers and timeouts.
 """
 import time
 import logging
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 import requests
 from requests.adapters import HTTPAdapter
 from .config import BASE_URL
@@ -19,6 +21,48 @@ logger = logging.getLogger(__name__)
 # transient server/gateway failure. Anything else is a real answer and is
 # returned (or raised) immediately.
 RETRY_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
+# Longest Retry-After this client will wait out. Beyond this, sleeping would
+# block the caller for longer than any reasonable request budget (this library
+# gets used inside web request handlers), so the error is raised immediately and
+# the caller decides. Retrying sooner than the server asked would be worse than
+# not retrying at all.
+MAX_RETRY_AFTER_SECONDS = 60.0
+
+
+def _parse_retry_after(value):
+    """
+    Parse a Retry-After header into a delay in seconds.
+
+    Both forms in RFC 9110 are accepted: delta-seconds ("120") and an HTTP-date
+    ("Wed, 21 Oct 2015 07:28:00 GMT").
+
+    :param value: Raw header value, or None if absent.
+    :return: Non-negative delay in seconds, or None if absent/unparseable.
+    """
+    if not isinstance(value, str):
+        return None
+
+    value = value.strip()
+    if not value:
+        return None
+
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+
+    if retry_at is None:
+        return None
+    # An HTTP-date without a zone is UTC by spec.
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=timezone.utc)
+    return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
 
 
 class SleeperClient:
@@ -137,16 +181,44 @@ class SleeperClient:
                     continue
                 raise SleeperAPIError(f"Request failed after {self.max_retries} retries: {exc}") from exc
 
-            # Retry rate limits and transient server errors with exponential
-            # backoff. 5xx used to be retried by the adapter's urllib3 Retry;
-            # it is handled here now so there is exactly one retry layer.
+            # Retry rate limits and transient server errors. 5xx used to be
+            # retried by the adapter's urllib3 Retry; it is handled here now so
+            # there is exactly one retry layer.
             if response.status_code in RETRY_STATUS_CODES and attempt < self.max_retries:
+                # A Retry-After from the server outranks our local schedule --
+                # backing off less than the server asked just burns attempts
+                # against a door that is still closed. urllib3's Retry honored
+                # this for 5xx (respect_retry_after_header defaults to True),
+                # so keeping it preserves behavior; 429 never reached that Retry
+                # at all, since it was not in status_forcelist, so rate limits
+                # gain the handling they never had.
+                retry_after = _parse_retry_after(response.headers.get("Retry-After"))
+
+                if retry_after is not None and retry_after > MAX_RETRY_AFTER_SECONDS:
+                    logger.warning(
+                        f"Got {response.status_code} with Retry-After {retry_after:.0f}s, "
+                        f"beyond the {MAX_RETRY_AFTER_SECONDS:.0f}s this client will wait"
+                    )
+                    if response.status_code == 429:
+                        raise RateLimitError(
+                            f"Rate limited; server asked for {retry_after:.0f}s, "
+                            f"longer than the {MAX_RETRY_AFTER_SECONDS:.0f}s maximum wait"
+                        )
+                    raise SleeperAPIError(
+                        f"Error {response.status_code}: server asked for a "
+                        f"{retry_after:.0f}s retry delay, longer than the "
+                        f"{MAX_RETRY_AFTER_SECONDS:.0f}s maximum wait",
+                        status_code=response.status_code
+                    )
+
+                delay = retry_after if retry_after is not None else backoff
                 logger.warning(
-                    f"Got {response.status_code}, retrying in {backoff}s "
+                    f"Got {response.status_code}, retrying in {delay}s "
                     f"(attempt {attempt + 1}/{self.max_retries})"
+                    + (" per Retry-After" if retry_after is not None else "")
                 )
-                time.sleep(backoff)
-                backoff *= 2  # Exponential backoff
+                time.sleep(delay)
+                backoff *= 2  # Exponential backoff, for attempts with no header
                 continue
 
             if response.status_code == 429:

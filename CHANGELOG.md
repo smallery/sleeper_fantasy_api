@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sleeper_api` imports it. It now lives in the `dev` extra:
   `pip install "sleeper_fantasy_api[dev]"`.
 
+- **`Retry-After` is now honored** on retryable responses, in both RFC 9110
+  forms (delta-seconds and HTTP-date). The server's instruction takes precedence
+  over the local exponential backoff — retrying sooner than asked just burns
+  attempts against a door that is still closed. urllib3's `Retry` honored this
+  for the codes in `status_forcelist`, so keeping it preserves 5xx behavior
+  through the retry consolidation below; **429 was never in that forcelist**, so
+  rate limits gain handling they never had. A `Retry-After` longer than
+  `MAX_RETRY_AFTER_SECONDS` (60s) raises immediately rather than blocking the
+  caller — this library runs inside web request handlers, where a ten-minute
+  sleep is worse than a fast failure.
+
 - **Single retry layer in `SleeperClient`.** The session mounted an
   `HTTPAdapter` carrying a urllib3 `Retry(total=3)` *and* `_request` ran its own
   retry loop, so the two multiplied: one outage could cost up to
