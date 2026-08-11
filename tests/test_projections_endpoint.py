@@ -537,6 +537,114 @@ class TestProjectionsEndpoint:
 
         assert result == {1: {"pts_ppr": 15.5}}
 
+    # -- fields as a one-shot iterable -- PR #32 review ----------------------
+    #
+    # `fields` is typed Optional[Iterable[str]], so a generator is a legal
+    # argument. get_season_projections() forwards the *same* fields object to
+    # a separate get_projections() call per week; without materializing it
+    # once up front, the first week's filter would consume the generator and
+    # every later week would silently filter against an empty set -- no
+    # exception, no warning, just empty per-player dicts easily misread as
+    # "no data this week."
+
+    def test_get_season_projections_fields_generator_sequential(
+        self, projections_endpoint, mock_cache
+    ):
+        """A one-shot generator passed as `fields` must filter every week
+        identically under sequential (max_workers=1, the default) fetching,
+        not just the first week that happens to touch it.
+        """
+        mock_cache.get.return_value = {
+            "player1": {"pts_ppr": 15.5, "pts_half_ppr": 14.0, "rec": 5},
+        }
+        fields_gen = (f for f in ("pts_ppr",))
+
+        result = projections_endpoint.get_season_projections(
+            2024, weeks=[1, 2, 3], fields=fields_gen, max_workers=1
+        )
+
+        expected_week = {"player1": {"pts_ppr": 15.5}}
+        assert result == {1: expected_week, 2: expected_week, 3: expected_week}
+
+    def test_get_season_projections_fields_generator_concurrent(
+        self, projections_endpoint, mock_cache
+    ):
+        """Same guarantee under max_workers > 1, where -- absent a fix --
+        this would additionally be a race: whichever worker thread reaches
+        the shared generator first would "win" its contents, and the bug
+        would reproduce nondeterministically across runs.
+
+        Deterministic here (no sleeps, no timing dependency): the fields
+        argument is materialized into a frozenset once, before the thread
+        pool is even created, so every worker thread only ever sees an
+        already-materialized, repeatedly-iterable frozenset -- never the
+        original generator. There is no window in which two threads could
+        race over it.
+        """
+        mock_cache.get.return_value = {
+            "player1": {"pts_ppr": 15.5, "pts_half_ppr": 14.0, "rec": 5},
+        }
+        fields_gen = (f for f in ("pts_ppr",))
+
+        result = projections_endpoint.get_season_projections(
+            2024, weeks=[1, 2, 3, 4], fields=fields_gen, max_workers=4
+        )
+
+        expected_week = {"player1": {"pts_ppr": 15.5}}
+        assert result == {
+            1: expected_week,
+            2: expected_week,
+            3: expected_week,
+            4: expected_week,
+        }
+
+    def test_get_player_season_projections_fields_generator(
+        self, projections_endpoint, mock_cache
+    ):
+        """get_player_season_projections() inherits the same guarantee
+        through get_season_projections() -- explicitly called out in the
+        PR #32 review as sharing the bug through this path.
+        """
+        mock_cache.get.return_value = {
+            "player1": {"pts_ppr": 15.5, "pts_half_ppr": 14.0, "rec": 5},
+        }
+        fields_gen = (f for f in ("pts_ppr",))
+
+        result = projections_endpoint.get_player_season_projections(
+            "player1", 2024, weeks=[1, 2, 3], fields=fields_gen
+        )
+
+        assert result == {
+            1: {"pts_ppr": 15.5},
+            2: {"pts_ppr": 15.5},
+            3: {"pts_ppr": 15.5},
+        }
+
+    def test_materialize_fields_returns_none_for_none(self):
+        """None must pass through unchanged, not become an empty frozenset
+        (which would silently filter every field out instead of returning
+        everything, per _filter_projection_fields()'s None-means-unfiltered
+        contract).
+        """
+        from sleeper_api.endpoints.projections_endpoint import _materialize_fields
+
+        assert _materialize_fields(None) is None
+
+    def test_materialize_fields_consumes_generator_into_reusable_frozenset(self):
+        """Direct unit check of the helper itself: given a one-shot
+        generator, it returns a frozenset containing the generator's full
+        contents, usable any number of times afterward.
+        """
+        from sleeper_api.endpoints.projections_endpoint import _materialize_fields
+
+        gen = (f for f in ("pts_ppr", "pts_half_ppr"))
+        materialized = _materialize_fields(gen)
+
+        assert materialized == frozenset({"pts_ppr", "pts_half_ppr"})
+        # Iterating it twice must yield the same thing both times -- the
+        # entire point of materializing it.
+        assert set(materialized) == set(materialized) == {"pts_ppr", "pts_half_ppr"}
+
     def test_filtered_projections_compose_with_calculate_team_projection(
         self, projections_endpoint, mock_cache
     ):

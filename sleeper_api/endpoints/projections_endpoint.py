@@ -7,7 +7,7 @@ Note: This uses an undocumented Sleeper endpoint that may change.
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, FrozenSet, Iterable, List, Optional
 
 from ..exceptions import SleeperAPIError
 from ..persistent_cache import PersistentCache
@@ -21,6 +21,41 @@ NFL_REGULAR_SEASON_WEEKS = 18
 # so this bounds peak memory as much as it bounds connections, and it stays
 # under the client session's pool_maxsize of 20.
 MAX_CONCURRENT_WEEK_FETCHES = 8
+
+
+def _materialize_fields(fields: Optional[Iterable[str]]) -> Optional[FrozenSet[str]]:
+    """
+    Materialize a caller-supplied `fields` iterable into a `frozenset`, once,
+    at the boundary where it enters this module.
+
+    `fields` is typed `Optional[Iterable[str]]` so any iterable is accepted
+    -- including a one-shot generator or iterator. That is fine for a single
+    use, but `get_season_projections()` (and, through it,
+    `get_player_season_projections()`) forwards the *same* `fields` object
+    to a separate `get_projections()` call per week. If that object is a
+    generator, the first week's filter exhausts it and every later week
+    silently filters against an empty set -- empty per-player dicts, no
+    exception, no warning, easily misread as "Sleeper had no data for this
+    week." Under `max_workers > 1` it's worse: whichever week's thread
+    happens to consume the generator first wins, so the bug is
+    nondeterministic across runs. See PR #32 review.
+
+    Calling this once, immediately, at every public method that accepts
+    `fields` -- before it is used or forwarded anywhere else -- closes this
+    off structurally: a `frozenset` can be iterated any number of times and
+    shared read-only across threads safely, so no downstream call site (this
+    module has several) needs to know or care whether the original argument
+    was list-like or a one-shot iterator.
+
+    Args:
+        fields: Caller-supplied iterable of field names, or None.
+
+    Returns:
+        None if `fields` is None, else a frozenset of its contents.
+    """
+    if fields is None:
+        return None
+    return frozenset(fields)
 
 
 def _filter_projection_fields(
@@ -171,6 +206,13 @@ class ProjectionsEndpoint:
             >>> # unaffected -- still stores the full payload).
             >>> ppr_only = endpoint.get_projections(2024, 1, fields=("pts_ppr",))
         """
+        # Materialize once, immediately -- see _materialize_fields(). A
+        # generator passed here and used only within this one call would
+        # already be safe, but doing it unconditionally at every public
+        # entry point means the guarantee doesn't depend on which method a
+        # caller happened to go through.
+        fields = _materialize_fields(fields)
+
         cache_key = f"projections:{season}:{week}"
 
         # Check persistent file cache. Always the full payload -- see the
@@ -341,6 +383,16 @@ class ProjectionsEndpoint:
             ...     2024, weeks=list(range(10, 19)), max_workers=8
             ... )
         """
+        # Materialize once, before `fields` is forwarded to more than one
+        # week's fetch. This is THE critical spot for this guarantee: the
+        # exact same `fields` object is about to be handed to a separate
+        # get_projections() call per week (sequentially, or racing across
+        # threads below), and get_projections()'s own materialization can't
+        # help here -- by the time each call touches a shared generator, the
+        # object itself is already partially or fully consumed by whichever
+        # call reached it first. See _materialize_fields() and PR #32 review.
+        fields = _materialize_fields(fields)
+
         if weeks is None:
             weeks = list(range(1, NFL_REGULAR_SEASON_WEEKS + 1))
 
@@ -391,6 +443,13 @@ class ProjectionsEndpoint:
             >>>     if proj:
             >>>         print(f"Week {week}: {proj.get('pts_ppr')} PPR points")
         """
+        # Materialize here too, even though get_season_projections() would
+        # materialize it anyway -- this call is itself a boundary a caller
+        # can hand a one-shot iterable to, and this guarantee shouldn't
+        # depend on tracing into what get_season_projections() happens to do
+        # internally. Idempotent and cheap either way: re-wrapping an
+        # already-materialized frozenset just makes another frozenset.
+        fields = _materialize_fields(fields)
         season_data = self.get_season_projections(
             season, weeks, max_workers=max_workers, fields=fields
         )

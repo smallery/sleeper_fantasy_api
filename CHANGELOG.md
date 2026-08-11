@@ -322,7 +322,18 @@ all three change the client/endpoint contract.
   `get_player_season_projections()`) accept an optional `fields` argument**
   to trim each player's projection dict to just the given field names, e.g.
   `get_projections(2025, 1, fields=("pts_ppr",))`. Opt-in: omitting it
-  returns every field, unchanged from prior versions. See #16.
+  returns every field, unchanged from prior versions. `fields` is typed
+  `Optional[Iterable[str]]`, so any iterable is accepted, including a
+  one-shot generator or iterator -- it is materialized into a `frozenset`
+  exactly once, at every public method that accepts it
+  (`_materialize_fields()`), before it can be forwarded to more than one
+  week's fetch. Caught in PR #32 review (credit to `@codex`'s pass on the
+  PR): without this, `get_season_projections()` forwarding the *same*
+  `fields` object to a separate `get_projections()` call per week would let
+  the first week's filter silently exhaust a generator, leaving every later
+  week filtered against an empty set -- no exception, no warning -- and
+  under `max_workers > 1` which week "won" the generator's contents would
+  be a race, reproducing nondeterministically. See #16.
 
 ### Changed
 - **`ProjectionsEndpoint.get_projections()` now caches the raw API response
