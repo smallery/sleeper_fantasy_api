@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **README section on calling this client from async code (`asyncio.to_thread`).**
+  Documents the pattern for using `SleeperClient` from inside an event loop
+  (FastAPI, aiohttp, discord.py, etc.) without blocking it, per the
+  "suggested next step" in [#23](https://github.com/smallery/sleeper_fantasy_api/issues/23)
+  -- add the docs first, see whether anyone actually needs a native async
+  client before building one. Covers the `asyncio.to_thread` pattern itself,
+  why it's preferred over `loop.run_in_executor` on this package's Python
+  3.10+ floor, how it interacts with `get_season_projections(max_workers=...)`'s
+  existing thread-pool fan-out (wrap the whole call once; don't nest a second
+  pool inside it), and reiterates the Client Lifecycle guidance in an async
+  context. Explicitly frames `asyncio.to_thread` as solving "don't block the
+  loop," not "go faster" -- the thread-pool fan-out already captures most of
+  the measured concurrency for this workload. No code changes.
 - **`SleeperClient.close()` and context-manager support (`__enter__`/`__exit__`).**
   The client owns a `requests.Session` and its connection pool with no way to
   release either -- sockets stayed open until garbage collection, which is
