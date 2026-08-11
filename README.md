@@ -122,8 +122,14 @@ makes everything a `dict`. The exceptions, in both directions:
 |---|---|---|
 | `LeagueEndpoint.get_league_by_id()` | `LeagueModel` | Single named resource; the model *is* the return value |
 | `LeagueEndpoint.get_complete_league_data()` | `dict` of models | A composed convenience result, not one endpoint's payload |
-| `PlayerEndpoint.get_player()` / `.get_players_by_team()` | `PlayerModel` | Built from the cached player map rather than a per-call fetch |
-| every `ProjectionsEndpoint` method | raw `dict` | There is no projection model -- projections are returned as-is |
+| `PlayerEndpoint.get_player()` | `PlayerModel` | Built from the cached player map rather than a per-call fetch |
+| `PlayerEndpoint.get_players_by_team()` | `List[PlayerModel]` | As above, but a collection -- note the shape differs from `get_player()` |
+| `ProjectionsEndpoint.get_projections()` | `Dict[str, Dict]` | No projection model exists; payloads are returned as-is |
+| `ProjectionsEndpoint.get_season_projections()` | `Dict[int, Dict[str, Dict]]` | As above, keyed by week |
+| `ProjectionsEndpoint.get_player_projection()` | `Optional[Dict]` | As above -- **`None`** when the player has no projection that week |
+| `ProjectionsEndpoint.get_player_season_projections()` | `Dict[int, Optional[Dict]]` | As above, per week, with `None` for weeks the player is missing from |
+| `ProjectionsEndpoint.get_scoring_type()` | `str` | A derived setting (`"pts_ppr"` etc.), not a payload |
+| `ProjectionsEndpoint.calculate_team_projection()` | `float` | A computed total, not a payload |
 
 Those signatures have no `convert_results` parameter at all, so passing one is
 a `TypeError` (and, with `py.typed` shipped, a type error your checker will
