@@ -10,6 +10,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -139,7 +140,7 @@ class SleeperClient:
         # made one more call.
         self._closed = False
 
-    def close(self):
+    def close(self) -> None:
         """
         Release the underlying HTTP session and its connection pool.
 
@@ -290,7 +291,7 @@ class SleeperClient:
 
             return self._handle_response(response)
 
-    def get(self, endpoint, params=None):
+    def get(self, endpoint, params=None) -> Any:
         """
         Make a GET request. Currently sleeper API only supports reading.
 
@@ -300,6 +301,6 @@ class SleeperClient:
         """
         return self._request('GET', endpoint, params=params)
 
-    def get_base_url(self):
+    def get_base_url(self) -> str:
         "Returns the base url"
         return self.base_url

@@ -175,7 +175,7 @@ class LeagueEndpoint:
         # is always a UserModel here despite get_user()'s wider Union return.
         return [cast(UserModel, user_endpoint.get_user(user.get("user_id"), convert_results=True)) for user in users_json]
 
-    def get_complete_league_data(self, league_id: str):
+    def get_complete_league_data(self, league_id: str) -> Dict[str, Any]:
         """
         Fetch league info, rosters, and users in one convenient call.
 

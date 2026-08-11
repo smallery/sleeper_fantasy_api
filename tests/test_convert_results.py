@@ -20,6 +20,7 @@ from sleeper_api.endpoints.player_endpoint import PlayerEndpoint
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.models.roster import RosterModel
 from sleeper_api.models.user import UserModel
+from sleeper_api.exceptions import SleeperAPIError
 
 
 class TestSleeperClientConvertResultsSetting(unittest.TestCase):
@@ -255,3 +256,25 @@ class TestCollectionEndpointsOn404(unittest.TestCase):
                     client.convert_results = convert
                     client.get.return_value = None
                     self.assertEqual(getattr(cls(client), name)(*args), [])
+
+
+class TestScalarLookupOn404(unittest.TestCase):
+    """A named-resource 404 must raise, not return None or crash.
+
+    The collection guards cover methods that return lists; get_draft_by_id is a
+    scalar lookup and was missed by that sweep. Before this, the raw path
+    returned None against a declared Dict and the convert path crashed inside
+    DraftModel.from_json(). Matches get_user()/get_league_by_id() (issue #17):
+    a caller naming one resource gets an error when it does not exist.
+    """
+
+    def test_get_draft_by_id_raises_on_404(self):
+        for convert in (True, False):
+            with self.subTest(convert_results=convert):
+                client = MagicMock()
+                client.convert_results = convert
+                client.get.return_value = None
+                with self.assertRaises(SleeperAPIError) as ctx:
+                    DraftEndpoint(client).get_draft_by_id("missing-id")
+                self.assertEqual(ctx.exception.status_code, 404)
+                self.assertIn("missing-id", str(ctx.exception))

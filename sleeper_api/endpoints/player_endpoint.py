@@ -230,7 +230,7 @@ class PlayerEndpoint:
 
         return result
 
-    def get_player(self,player_id):
+    def get_player(self, player_id: str) -> PlayerModel:
         """
         Returns a specific playerModel for the player ID
         """

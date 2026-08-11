@@ -12,6 +12,7 @@ and by user, as well as handling the conversion of results into model instances.
 from typing import Dict, List, Literal, Optional, Union, overload
 
 from ..config import get_current_season
+from ..exceptions import SleeperAPIError
 from ..models.draft import DraftModel
 from ..models.picks import PicksModel
 from ..models.traded_picks import TradedPickModel
@@ -93,6 +94,14 @@ class DraftEndpoint:
             convert_results = self.client.convert_results
         endpoint = f"draft/{draft_id}"
         draft_json = self.client.get(endpoint)
+
+        # A caller asked for one specific draft by id, so a 404 means that
+        # draft does not exist -- an error, not an empty result. Matches
+        # get_user()/get_league_by_id() (issue #17). Without this the raw
+        # path returned None against a declared Dict, and the convert path
+        # crashed inside DraftModel.from_json().
+        if draft_json is None:
+            raise SleeperAPIError(f"Draft '{draft_id}' not found", status_code=404)
 
         if not convert_results:
             return draft_json
