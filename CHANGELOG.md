@@ -5,7 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-08-11
+
+This release lands three grouped issues (#17, #18, #21) as one breaking
+batch rather than dribbling behavior changes across patch releases, since
+all three change the client/endpoint contract.
+
+### BREAKING CHANGES
+- **`UserEndpoint.get_user()` now raises `UserNotFoundError`** (instead of
+  returning a `UserModel` built from `None` and blowing up with an
+  unrelated `AttributeError`) when the given `user_id`/`username` does not
+  exist. Catch `UserNotFoundError` (or its base `SleeperAPIError`) if your
+  code previously relied on inspecting a falsy/broken result.
+- **`LeagueEndpoint.get_league_by_id()` now raises `LeagueNotFoundError`**
+  (previously a generic `SleeperAPIError`) for an unknown `league_id`.
+  `LeagueNotFoundError` is a `SleeperAPIError` subclass, so a bare
+  `except SleeperAPIError` still catches it; catch `LeagueNotFoundError`
+  specifically if you want to distinguish "not found" from other failures.
+- **`UserEndpoint.fetch_nfl_leagues()` returns `[]`** instead of raising
+  `SleeperAPIError` when the user has no leagues in the requested season.
+  A user having no leagues is a normal outcome, not an error -- callers that
+  wrapped this call in `try/except SleeperAPIError` for the empty case
+  should switch to checking `if not leagues:`.
+- **The default `season` argument on `fetch_nfl_leagues()`, `get_all_drafts()`,
+  and `get_drafts_by_user()` no longer uses `datetime.now().year`.** It's
+  now resolved from `GET /state/nfl` (the authoritative source), cached for
+  about an hour instead of frozen once at import time. The old constant was
+  wrong for roughly eight months of every year (an NFL season is labelled
+  by the year it starts) and never updated in a long-running process.
+  Practical effect: default-season calls made January-August now correctly
+  target last season's data instead of a season with nothing in it. Also,
+  **during preseason these three methods default to the *previous* season**
+  (the upcoming one Sleeper reports has no data yet) -- pass `season`
+  explicitly if you specifically want the upcoming season. See the
+  README's "Season Defaults" section.
+- **`SleeperClient(api_key=...)` was removed.** It was accepted, stored, and
+  set an `Authorization: Bearer` header, but Sleeper's read API requires no
+  authentication and nothing ever used it -- keeping an unused parameter
+  implied a capability the API doesn't have. Remove the argument from any
+  `SleeperClient(...)` call that passed it; nothing else changes, since the
+  header was never required to begin with.
 
 ### Added
 - **README section on calling this client from async code (`asyncio.to_thread`).**
@@ -125,6 +164,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this release removes) -- so the legacy record could outlive the entry it
   described and stay counted until its own TTL expired. `get_stats()` now
   only counts a legacy-only record if its data file still exists.
+- **`LeagueNotFoundError` and `RateLimitError` are now exported from
+  `sleeper_api`**, alongside the previously-exported `SleeperAPIError` and
+  `UserNotFoundError`. All four exception types anything a caller might
+  need to catch now live at the package root instead of requiring a direct
+  `sleeper_api.exceptions` import for two of them.
+- **`get_current_season(client)` in `sleeper_api.config`** resolves "the
+  current season" from live `/state/nfl` data. Endpoints use it internally
+  for their default-`season` arguments; it's also usable directly by
+  callers that want the same resolution logic (with the same
+  `prefer_previous_during_preseason` opt-out) elsewhere.
+
+### Fixed
+- **`get_trending_players()` now URL-encodes its query parameters** via
+  `SleeperClient.get()`'s existing `params=` support, instead of
+  hand-interpolating `lookback_hours`/`limit` into the endpoint path with no
+  encoding at all.
+- **`get_trending_players()` no longer silently ignores `convert_results`.**
+  It called `self.get_all_players(convert_results)` *positionally*, but
+  `get_all_players`'s signature is `(sport='nfl', convert_results=...)`, so
+  the boolean landed in the `sport` slot instead and the real
+  `convert_results` argument was never read. This went unnoticed because
+  `get_all_players`'s cache-hit path never uses `sport`; a cache miss would
+  have requested `players/True` from the API. Also now passes `sport`
+  through, so trending players for a non-`nfl` sport get looked up against
+  player data for the *same* sport instead of always defaulting to `nfl`.
+- `MANIFEST.in` referenced a `setup.py` that hasn't existed since the move
+  to `pyproject.toml`, and shipped `tests/` inside the sdist. Cleaned up;
+  a future `py.typed` marker (PEP 561, tracked separately) will reach the
+  wheel via `[tool.setuptools.package-data]` in `pyproject.toml`, which
+  doesn't require an sdist-time `MANIFEST.in` entry the way the removed
+  patterns did.
 
 ## [0.4.0] - 2026-08-10
 

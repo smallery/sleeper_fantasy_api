@@ -19,7 +19,6 @@ from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
 from sleeper_api.persistent_cache import PersistentCache
-from sleeper_api.exceptions import SleeperAPIError
 
 
 def main():
@@ -55,24 +54,26 @@ def main():
     nfl_state = league_endpoint.get_nfl_state(convert_results=True)
     print(f"Season: {nfl_state.season}, Week: {nfl_state.week}, Type: {nfl_state.season_type}")
 
-    # Get user's leagues for the current season. Preseason weeks carry no
-    # projections yet, so fall back to the previous season when that happens.
-    season = int(nfl_state.season)
-    if nfl_state.season_type == "pre":
-        season -= 1
-        print(f"\nPreseason detected -- using the {season} season instead")
-
-    print(f"\nFetching leagues for {season}...")
-    try:
-        leagues = user_endpoint.fetch_nfl_leagues(user.user_id, season)
-    except SleeperAPIError as exc:
-        print(f"No leagues found for {season}: {exc}")
+    # Get user's leagues. Leaving season out resolves "the current season"
+    # from GET /state/nfl rather than the calendar year, and -- since
+    # preseason weeks carry no league/projection data yet -- steps back to
+    # the previous season automatically in that window (see the README's
+    # "Season Defaults" section). A user with none in that season gets []
+    # rather than an exception (see issue #21), so that's handled explicitly
+    # rather than assuming leagues[0] exists.
+    print("\nFetching leagues for the current season...")
+    leagues = user_endpoint.fetch_nfl_leagues(user.user_id)
+    if not leagues:
+        print(f"No leagues found for {user.username}.")
         return
 
     # Use the first league. fetch_nfl_leagues returns LeagueModel objects, not
-    # raw dicts, so these are attributes rather than .get() lookups.
+    # raw dicts, so these are attributes rather than .get() lookups. Read the
+    # season back off it rather than recomputing the preseason fallback here
+    # too -- it's needed again below for projections/matchups.
     league = leagues[0]
-    print(f"\nUsing league: {league.name} (ID: {league.league_id})")
+    season = int(league.season)
+    print(f"\nUsing league: {league.name} (ID: {league.league_id}), season {season}")
     league_id = league.league_id
 
     # Get league details

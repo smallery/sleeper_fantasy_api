@@ -28,7 +28,9 @@ def main(username):
     print(f"User ID: {user.user_id}")
     print(f"Username: {user.username}\n")
 
-    # populate the leagues list
+    # populate the leagues list. A user with no leagues in the season gets []
+    # rather than an exception (see issue #21), so that's handled explicitly
+    # below rather than assuming user_leagues[0] exists.
     user_leagues = user_endpoint.fetch_nfl_leagues(user.user_id, season=2024)
     print(f'{user.username} was in {len(user_leagues)} league(s) in 2024')
     for league in user_leagues:
@@ -36,6 +38,10 @@ def main(username):
               f'League ID: {league.league_id:<15} | '
               f'Draft ID: {league.draft_id:<15}'
               )
+
+    if not user_leagues:
+        print(f'\n{user.username} has no leagues in 2024 -- nothing more to show.')
+        return
 
     # create league endpoint
 
