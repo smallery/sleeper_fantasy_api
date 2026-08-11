@@ -333,34 +333,81 @@ class TestRemainingNoneSites(unittest.TestCase):
 
 
 class TestNoUnannotatedExports(unittest.TestCase):
-    """Nothing exported from `sleeper_api` may lack a return annotation.
+    """No callable on the public surface may lack a return annotation.
 
-    Three separate hand-written sweeps each missed a category -- endpoint
-    collections only, then non-dunders only, then endpoints but never the
-    models. This asserts the property over `__all__` instead, so a new export
-    cannot quietly reintroduce an `Any` at the package boundary.
+    Two earlier versions of this test gave false confidence:
+
+    * `inspect.getmembers(cls, inspect.isfunction)` silently skips
+      classmethods -- accessing a `@classmethod` through its class yields a
+      bound method, for which `isfunction` is False. The four exported
+      factories were therefore never checked, which is precisely the category
+      the invariant exists to protect. This walks `vars(cls)` and unwraps the
+      descriptors instead.
+    * Starting only from `sleeper_api.__all__` missed types reachable through
+      exported signatures. `LeagueEndpoint.get_nfl_state()` returns
+      `NFLStateModel`, so it is public whether or not it is exported. This
+      follows return annotations to find them.
     """
 
-    def test_every_exported_callable_is_annotated(self):
+    SKIP = {"__init__", "__init_subclass__", "__subclasshook__", "__new__"}
+
+    @staticmethod
+    def _callables(cls):
+        """Yield (name, function) for every callable defined on `cls`.
+
+        Uses raw `vars()` descriptors so classmethods and staticmethods are
+        included -- `inspect.isfunction` drops them.
+        """
+        import inspect
+        for name, raw in vars(cls).items():
+            func = raw.__func__ if isinstance(raw, (classmethod, staticmethod)) else raw
+            if inspect.isfunction(func):
+                yield name, func
+
+    def _public_classes(self):
+        """Exported classes, plus every class reachable via a return annotation."""
         import inspect
         import sleeper_api
 
-        skip = {"__init__", "__init_subclass__", "__subclasshook__", "__new__"}
-        gaps = []
-        for name in sleeper_api.__all__:
-            obj = getattr(sleeper_api, name)
-            if not inspect.isclass(obj):
+        seen, queue = {}, [getattr(sleeper_api, n) for n in sleeper_api.__all__]
+        while queue:
+            obj = queue.pop()
+            if not inspect.isclass(obj) or obj in seen.values():
                 continue
-            for attr, func in inspect.getmembers(obj, inspect.isfunction):
-                if attr in skip:
+            if not obj.__module__.startswith("sleeper_api"):
+                continue
+            seen[obj.__qualname__] = obj
+            for _, func in self._callables(obj):
+                try:
+                    ret = inspect.signature(func).return_annotation
+                except (ValueError, TypeError):
                     continue
-                if attr.startswith("_") and not (attr.startswith("__") and attr.endswith("__")):
+                for candidate in (ret, *getattr(ret, "__args__", ())):
+                    if inspect.isclass(candidate):
+                        queue.append(candidate)
+        return seen
+
+    def test_every_public_callable_is_annotated(self):
+        import inspect
+
+        gaps = []
+        for cls_name, cls in self._public_classes().items():
+            for name, func in self._callables(cls):
+                if name in self.SKIP:
+                    continue
+                if name.startswith("_") and not (name.startswith("__") and name.endswith("__")):
                     continue
                 try:
                     sig = inspect.signature(func)
                 except (ValueError, TypeError):
                     continue
                 if sig.return_annotation is inspect.Signature.empty:
-                    gaps.append(f"{name}.{attr}")
-        self.assertEqual(gaps, [], f"unannotated exported callables: {gaps}")
+                    gaps.append(f"{cls_name}.{name}")
+        self.assertEqual(sorted(gaps), [], f"unannotated public callables: {sorted(gaps)}")
 
+    def test_the_invariant_actually_sees_classmethods(self):
+        # Guards the bug this test previously had: if the walk misses
+        # classmethods, the factory annotations could regress unnoticed.
+        from sleeper_api.models.draft import DraftModel
+        names = {n for n, _ in self._callables(DraftModel)}
+        self.assertIn("from_json", names)

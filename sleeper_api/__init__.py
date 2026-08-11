@@ -20,6 +20,7 @@ from .models.brackets import BracketModel
 from .models.draft import DraftModel
 from .models.league import LeagueModel
 from .models.matchups import MatchupModel
+from .models.nfl_state import NFLStateModel
 from .models.picks import PicksModel
 from .models.player import PlayerModel
 from .models.roster import RosterModel
@@ -42,6 +43,7 @@ __all__ = [
     "DraftModel",
     "LeagueModel",
     "MatchupModel",
+    "NFLStateModel",
     "PicksModel",
     "PlayerModel",
     "RosterModel",
