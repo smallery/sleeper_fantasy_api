@@ -169,6 +169,42 @@ class PersistentCache:
             except OSError:
                 pass
 
+    def _recover_from_legacy(
+        self, key: str, legacy_entry: Optional[Dict[str, str]]
+    ) -> Optional[Dict[str, str]]:
+        """
+        Recover a key's metadata from an already-looked-up legacy entry,
+        repairing/creating its sidecar in the process.
+
+        Factored out so every place that treats an unreadable/missing
+        sidecar as "check the legacy index before giving up" -- currently
+        `_get_entry_meta()` (normal lookups) and `cleanup_expired()`
+        (sweeping a corrupt sidecar) -- shares one implementation instead of
+        each keeping its own copy. PR #26 review (finding A) found exactly
+        that divergence: `_get_entry_meta()` got the legacy fallback for the
+        unreadable-sidecar finding, but `cleanup_expired()`'s own
+        corrupt-sidecar handling was a separate code path that never did,
+        so it could still delete a fully recoverable entry (payload,
+        sidecar, *and* the valid legacy record) if it ran before any
+        `get()` touched that key.
+
+        Args:
+            key: Original (non-sanitized) cache key.
+            legacy_entry: The key's legacy index entry, if any (the caller
+                looks this up, since the two call sites find it differently:
+                by key directly in `_get_entry_meta()`, by sanitized-key
+                lookup in `cleanup_expired()`).
+
+        Returns:
+            `legacy_entry` unchanged, after writing it out as the key's
+            sidecar so this fallback is paid at most once. None if there is
+            no legacy entry to recover from.
+        """
+        if not legacy_entry:
+            return None
+        self._write_entry_meta(key, legacy_entry)
+        return legacy_entry
+
     def _get_entry_meta(self, key: str) -> Optional[Dict[str, str]]:
         """
         Look up a key's metadata. Caller must hold `_METADATA_LOCK`.
@@ -207,12 +243,7 @@ class PersistentCache:
                 # Fall through to the legacy fallback below instead of
                 # returning None here.
 
-        legacy_entry = self._load_legacy_metadata().get(key)
-        if legacy_entry:
-            self._write_entry_meta(key, legacy_entry)
-            return legacy_entry
-
-        return None
+        return self._recover_from_legacy(key, self._load_legacy_metadata().get(key))
 
     def get(self, key: str) -> Any | None:
         """
@@ -289,12 +320,6 @@ class PersistentCache:
             logger.warning(f"Failed to serialize cache value for key {key}: {e}")
             return
 
-        now = datetime.now()
-        entry_meta = {
-            "created_at": now.isoformat(),
-            "expires_at": (now + timedelta(hours=ttl)).isoformat(),
-        }
-
         # Hold the lock across BOTH the data write and the metadata write.
         #
         # Without this, the data file is published (becomes visible to
@@ -331,6 +356,21 @@ class PersistentCache:
             # this point and confirm the lock keeps it from observing (and
             # destroying) the half-published entry.
             self._after_data_write()
+
+            # Compute the TTL window here, inside the lock, not before it.
+            # set() can block on _METADATA_LOCK behind another thread's
+            # write (the cost of the finding-1 fix above, which widened the
+            # lock to cover the data write). If `now` were captured before
+            # that wait, the time spent blocked would be silently consumed
+            # out of this entry's lifetime -- with a short TTL, or behind a
+            # slow preceding write, set() could return an entry that's
+            # already expired and gets deleted by the very next get(). See
+            # PR #26 review (finding B).
+            now = datetime.now()
+            entry_meta = {
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=ttl)).isoformat(),
+            }
 
             # Update this key's own metadata sidecar. O(1): unlike the old
             # shared cache_metadata.json, this never reads or rewrites any
@@ -459,40 +499,68 @@ class PersistentCache:
             removed = 0
             migrated_safe_keys = set()
 
+            # Loaded once, up front, so both (a) the corrupt-sidecar recovery
+            # below and (b) the legacy-only sweep after the sidecar loop
+            # share a single read. `_load_legacy_metadata()` already returns
+            # {} if the file is absent, so no separate existence check is
+            # needed. Indexed by sanitized key too, since this loop only has
+            # each sidecar's filename stem (`safe_key`), not the original key
+            # string -- `_safe_key()` isn't invertible, so this is how a
+            # corrupt sidecar gets matched back to its legacy record.
+            legacy = self._load_legacy_metadata()
+            legacy_by_safe_key = {self._safe_key(k): (k, v) for k, v in legacy.items()}
+
             # Current-format entries.
             for meta_path in list(self.cache_dir.glob(f"*{self._META_SUFFIX}")):
                 safe_key = meta_path.name[: -len(self._META_SUFFIX)]
                 migrated_safe_keys.add(safe_key)
 
-                expired = False
+                entry_meta: Optional[Dict[str, str]]
                 try:
                     with open(meta_path, "r") as f:
                         entry_meta = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    # Unreadable/corrupt sidecar: not authoritative absence.
+                    # Recover via the same legacy fallback _get_entry_meta()
+                    # applies -- otherwise a sidecar left truncated by an
+                    # interrupted migration gets destroyed the moment
+                    # cleanup_expired() runs before any get() touches the
+                    # key, even though the legacy index still has a valid,
+                    # unexpired entry for it. See PR #26 review (finding A).
+                    recovered = legacy_by_safe_key.get(safe_key)
+                    if recovered is None:
+                        entry_meta = None
+                    else:
+                        orig_key, legacy_entry = recovered
+                        entry_meta = self._recover_from_legacy(orig_key, legacy_entry)
+
+                expired = entry_meta is None
+                if entry_meta is not None:
                     expires_at_str = entry_meta.get("expires_at")
                     if expires_at_str:
-                        expires_at = datetime.fromisoformat(expires_at_str)
-                        if now > expires_at:
+                        try:
+                            expires_at = datetime.fromisoformat(expires_at_str)
+                            expired = now > expires_at
+                        except ValueError:
                             expired = True
-                except (json.JSONDecodeError, IOError, ValueError):
-                    # Corrupt sidecar: fail closed and drop the entry.
-                    expired = True
 
                 if expired:
                     self._delete_entry_files_by_safe_key(safe_key)
                     removed += 1
 
             # Entries still only in the legacy shared index.
-            if self._metadata_file.exists():
-                legacy = self._load_legacy_metadata()
+            if legacy:
                 legacy_changed = False
 
                 for key, entry_meta in list(legacy.items()):
                     safe_key = self._safe_key(key)
 
                     if safe_key in migrated_safe_keys:
-                        # Already evaluated above via its sidecar file; drop
-                        # the stale legacy copy so this index shrinks toward
-                        # empty as the cache is used.
+                        # Already evaluated above via its sidecar file (and,
+                        # if it was corrupt, already recovered from this
+                        # same legacy record) -- drop the stale legacy copy
+                        # so this index shrinks toward empty as the cache is
+                        # used.
                         del legacy[key]
                         legacy_changed = True
                         continue

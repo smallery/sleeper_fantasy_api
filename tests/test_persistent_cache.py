@@ -592,3 +592,106 @@ class TestPersistentCache:
         # Assert -- excluded immediately, not counted until the legacy TTL
         # would otherwise expire and cleanup_expired() sweeps it.
         assert cache.get_stats()["entries"] == 0
+
+    def test_cleanup_expired_recovers_corrupt_sidecar_from_valid_legacy_entry(
+        self, temp_cache_dir
+    ):
+        """Regression test for PR #26 review finding A.
+
+        `_get_entry_meta()` falls back to the legacy index when a sidecar is
+        unreadable/corrupt (finding 2), but `cleanup_expired()` has its own,
+        separate corrupt-sidecar handling that did not get the same fix. If
+        `cleanup_expired()` runs before any `get()` ever touches the key, a
+        corrupt sidecar coexisting with a still-valid, unexpired legacy
+        record must not cause the entry to be destroyed -- payload, sidecar,
+        *and* the valid legacy record it could have been recovered from.
+        """
+        # Arrange -- hand-write an old-format entry, then corrupt its
+        # sidecar as an interrupted migration write could leave it, without
+        # ever calling get() (which would otherwise trigger the
+        # already-fixed recovery path in _get_entry_meta()).
+        now = datetime.now()
+        legacy_metadata = {
+            "old_key": {
+                "created_at": now.isoformat(),
+                "expires_at": (now + timedelta(hours=1)).isoformat(),
+            }
+        }
+        (temp_cache_dir / "old_key.json").write_text(json.dumps({"data": "legacy_value"}))
+        (temp_cache_dir / "cache_metadata.json").write_text(json.dumps(legacy_metadata))
+        (temp_cache_dir / "old_key.meta").write_text("{not valid json")
+
+        cache = PersistentCache(cache_dir=temp_cache_dir)
+
+        # Act
+        removed = cache.cleanup_expired()
+
+        # Assert -- nothing removed, the corrupt sidecar was repaired from
+        # the still-valid legacy entry, and the value is still readable.
+        assert removed == 0
+        assert (temp_cache_dir / "old_key.json").exists()
+        migrated = json.loads((temp_cache_dir / "old_key.meta").read_text())
+        assert migrated["expires_at"] == legacy_metadata["old_key"]["expires_at"]
+        assert cache.get("old_key") == {"data": "legacy_value"}
+
+    def test_cleanup_expired_still_drops_corrupt_sidecar_with_no_legacy_backup(
+        self, temp_cache_dir
+    ):
+        """A corrupt sidecar with nothing recoverable must still fail closed.
+
+        Companion to the finding-A recovery test: confirms the fix only
+        adds a legacy-recovery opportunity and does not weaken the existing
+        "corrupt sidecar, no legacy entry" case, which must still be swept.
+        """
+        (temp_cache_dir / "orphan_key.json").write_text(json.dumps({"data": "x"}))
+        (temp_cache_dir / "orphan_key.meta").write_text("{not valid json")
+
+        cache = PersistentCache(cache_dir=temp_cache_dir)
+
+        removed = cache.cleanup_expired()
+
+        assert removed == 1
+        assert not (temp_cache_dir / "orphan_key.json").exists()
+        assert not (temp_cache_dir / "orphan_key.meta").exists()
+
+    def test_set_ttl_starts_after_lock_acquired_not_before(self, cache):
+        """Regression test for PR #26 review finding B.
+
+        set() must compute its expiry window only after acquiring
+        _METADATA_LOCK, not before waiting for it. The finding-1 fix moved
+        the data write inside the lock, but if `now` is still captured
+        before that lock is even requested, time spent blocked behind
+        another writer is silently consumed out of the new entry's TTL --
+        with a short TTL, or behind a slow preceding write, set() can
+        return an already-expired entry that the very next get() deletes.
+
+        Deterministic: hold `_METADATA_LOCK` from another thread for longer
+        than the configured TTL, then call set() (which must block on that
+        same lock) and confirm the entry is still live immediately after
+        set() returns.
+        """
+        from sleeper_api.persistent_cache import _METADATA_LOCK
+
+        hold_seconds = 0.5
+        ttl_hours = 0.25 / 3600  # 0.25s -- shorter than the lock hold
+
+        lock_acquired = threading.Event()
+
+        def holder():
+            with _METADATA_LOCK:
+                lock_acquired.set()
+                time.sleep(hold_seconds)
+
+        holder_thread = threading.Thread(target=holder)
+        holder_thread.start()
+        assert lock_acquired.wait(timeout=5), "holder thread never acquired the lock"
+
+        # Act -- set() must block behind `holder` for ~hold_seconds before
+        # it can even open the data file.
+        cache.set("race_key", {"data": "value"}, ttl_hours=ttl_hours)
+        holder_thread.join(timeout=5)
+
+        # Assert -- if `now` had been captured before waiting on the lock,
+        # this entry's expires_at would already be in the past by the time
+        # set() returns, and get() would delete it immediately.
+        assert cache.get("race_key") == {"data": "value"}
