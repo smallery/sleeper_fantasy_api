@@ -336,6 +336,35 @@ Contributions are welcome! To contribute:
 
 All PRs automatically run tests on Python 3.10, 3.11, 3.12, and 3.13.
 
+## Releasing
+
+Releases publish to PyPI automatically on a version tag, via
+[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) — there is
+no API token stored in this repo or on any developer machine.
+
+1. Bump `version` in `pyproject.toml` **and** `__version__` in
+   `sleeper_api/__init__.py` (the workflow refuses to publish if the tag
+   disagrees with either).
+2. Add the release notes to `CHANGELOG.md`.
+3. Merge to `main`, then tag and push:
+
+```bash
+git tag v0.4.0 && git push origin v0.4.0
+```
+
+`.github/workflows/publish.yml` then runs the test suite, builds the sdist and
+wheel, and uploads them.
+
+### A note on dependency pinning
+
+Runtime dependencies in `pyproject.toml` are declared as **ranges, never `==`
+pins**. pip applies a library's constraints to the consuming application's
+entire dependency resolution, so an exact pin here becomes an exact pin for
+everyone who installs this package — they cannot patch a CVE in a transitive
+dependency, and there is nothing they can do about it but wait for a new
+release. Applications pin; libraries constrain. Test-only tools belong in the
+`dev` extra, not in `[project.dependencies]`.
+
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more information.
 
