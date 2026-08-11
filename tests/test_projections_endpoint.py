@@ -1,4 +1,5 @@
 """Tests for the ProjectionsEndpoint class."""
+import threading
 import pytest
 from unittest.mock import Mock
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
@@ -234,6 +235,100 @@ class TestProjectionsEndpoint:
         # Assert
         assert result[1] == week1_data
         assert result[2] == {}
+
+    def test_get_season_projections_concurrent_matches_sequential(
+        self, projections_endpoint, mock_client, mock_cache
+    ):
+        """Concurrency must not change the result, only the timing."""
+        # Arrange
+        mock_cache.get.return_value = None
+        weeks = list(range(1, 11))
+
+        def side_effect(endpoint):
+            week = int(endpoint.rsplit("/", 1)[1])
+            return {"player1": {"pts_ppr": float(week)}}
+
+        mock_client.get.side_effect = side_effect
+
+        # Act
+        sequential = projections_endpoint.get_season_projections(2024, weeks=weeks)
+        concurrent = projections_endpoint.get_season_projections(
+            2024, weeks=weeks, max_workers=8
+        )
+
+        # Assert
+        assert concurrent == sequential
+        assert list(concurrent.keys()) == weeks
+        assert concurrent[7] == {"player1": {"pts_ppr": 7.0}}
+
+    def test_get_season_projections_concurrent_fans_out(
+        self, projections_endpoint, mock_client, mock_cache
+    ):
+        """Verify the work actually overlaps rather than running in series."""
+        # Arrange
+        mock_cache.get.return_value = None
+        barrier = threading.Barrier(4, timeout=5)
+
+        def side_effect(endpoint):
+            # Blocks until 4 threads arrive; raises BrokenBarrierError on
+            # timeout if the fetches are running sequentially.
+            barrier.wait()
+            return {"player1": {"pts_ppr": 1.0}}
+
+        mock_client.get.side_effect = side_effect
+
+        # Act
+        result = projections_endpoint.get_season_projections(
+            2024, weeks=[1, 2, 3, 4], max_workers=4
+        )
+
+        # Assert
+        assert not barrier.broken
+        assert len(result) == 4
+
+    @pytest.mark.parametrize("max_workers", [0, -5, 1])
+    def test_get_season_projections_low_worker_counts_run_sequentially(
+        self, projections_endpoint, mock_client, mock_cache, max_workers
+    ):
+        """Values below 1 are clamped rather than raising."""
+        # Arrange
+        mock_cache.get.return_value = None
+        mock_client.get.side_effect = [
+            {"player1": {"pts_ppr": 15.5}},
+            {"player1": {"pts_ppr": 12.0}},
+        ]
+
+        # Act
+        result = projections_endpoint.get_season_projections(
+            2024, weeks=[1, 2], max_workers=max_workers
+        )
+
+        # Assert -- ordered side_effect list only holds if fetches are serial
+        assert result == {1: {"player1": {"pts_ppr": 15.5}}, 2: {"player1": {"pts_ppr": 12.0}}}
+
+    def test_get_season_projections_concurrent_handles_failures(
+        self, projections_endpoint, mock_client, mock_cache
+    ):
+        """A week that raises degrades to {} without taking the others down."""
+        # Arrange
+        mock_cache.get.return_value = None
+
+        def side_effect(endpoint):
+            if endpoint.endswith("/2"):
+                raise Exception("API Error")
+            return {"player1": {"pts_ppr": 15.5}}
+
+        mock_client.get.side_effect = side_effect
+
+        # Act
+        result = projections_endpoint.get_season_projections(
+            2024, weeks=[1, 2, 3], max_workers=4
+        )
+
+        # Assert
+        assert result[1] == {"player1": {"pts_ppr": 15.5}}
+        assert result[2] == {}
+        assert result[3] == {"player1": {"pts_ppr": 15.5}}
 
     def test_get_player_season_projections(self, projections_endpoint, mock_client, mock_cache):
         """Test fetching single player across multiple weeks."""

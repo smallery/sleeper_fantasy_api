@@ -1,0 +1,87 @@
+name: Publish to PyPI
+
+# Publishes on a version tag push (e.g. `git tag v0.4.0 && git push origin v0.4.0`).
+#
+# Authentication is PyPI Trusted Publishing (OIDC): GitHub mints a short-lived
+# token for this specific repo + workflow + environment, and PyPI verifies it.
+# There is no API token stored in this repo, in Actions secrets, or on any
+# developer machine -- nothing to leak, rotate, or accidentally commit.
+#
+# One-time setup on PyPI (https://pypi.org/manage/project/sleeper-fantasy-api/settings/publishing/):
+#   Owner:              smallery
+#   Repository name:    sleeper_fantasy_api
+#   Workflow name:      publish.yml
+#   Environment name:   pypi
+# Until that publisher exists, the publish step fails with an auth error and
+# nothing is uploaded.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify the tag matches the packaged version
+        # A tag/version mismatch would publish something other than what the
+        # tag names, and PyPI filenames are immutable -- the wrong version
+        # number can never be reused. Cheaper to catch here.
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(grep -Po '(?<=^version = ")[^"]+' pyproject.toml)
+          echo "tag=$TAG pyproject=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject.toml version $PKG"
+            exit 1
+          fi
+          INIT=$(grep -Po '(?<=^__version__ = ")[^"]+' sleeper_api/__init__.py)
+          if [ "$TAG" != "$INIT" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ $INIT"
+            exit 1
+          fi
+
+      - name: Run tests before publishing
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pytest -q
+
+      - name: Build
+        run: |
+          pip install build twine
+          python -m build
+          twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment gates the OIDC claim and is where you can add a manual
+    # approval rule if you ever want a human in the loop before upload.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/sleeper-fantasy-api
+    permissions:
+      # Required for trusted publishing. This is the only credential involved.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

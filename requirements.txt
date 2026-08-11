@@ -1,3 +1,5 @@
-platformdirs==3.8.1
-requests==2.31.0
-pytest==8.2.2
+# Runtime dependencies. These mirror [project.dependencies] in pyproject.toml.
+# Kept as ranges, not "==" pins: this is a library, so exact pins here would
+# propagate into every consuming application's dependency resolution.
+platformdirs>=4.2.0,<5
+requests>=2.32.0,<3

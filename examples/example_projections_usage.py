@@ -6,16 +6,20 @@ This script shows how to:
 2. Calculate team projections
 3. Get current NFL state
 4. Detect league scoring type
+5. Bulk-fetch multiple weeks concurrently (max_workers)
+6. Track a single player's projections across weeks
 
 Usage:
     python examples/example_projections_usage.py -u YOUR_USERNAME
 """
 import argparse
+import time
 from sleeper_api.client import SleeperClient
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
 from sleeper_api.endpoints.projections_endpoint import ProjectionsEndpoint
 from sleeper_api.persistent_cache import PersistentCache
+from sleeper_api.exceptions import SleeperAPIError
 
 
 def main():
@@ -51,19 +55,25 @@ def main():
     nfl_state = league_endpoint.get_nfl_state(convert_results=True)
     print(f"Season: {nfl_state.season}, Week: {nfl_state.week}, Type: {nfl_state.season_type}")
 
-    # Get user's leagues for current season
-    season = nfl_state.season
-    print(f"\nFetching leagues for {season}...")
-    leagues = user_endpoint.get_leagues(user.user_id, 'nfl', season)
+    # Get user's leagues for the current season. Preseason weeks carry no
+    # projections yet, so fall back to the previous season when that happens.
+    season = int(nfl_state.season)
+    if nfl_state.season_type == "pre":
+        season -= 1
+        print(f"\nPreseason detected -- using the {season} season instead")
 
-    if not leagues:
-        print(f"No leagues found for {season}")
+    print(f"\nFetching leagues for {season}...")
+    try:
+        leagues = user_endpoint.fetch_nfl_leagues(user.user_id, season)
+    except SleeperAPIError as exc:
+        print(f"No leagues found for {season}: {exc}")
         return
 
-    # Use the first league
+    # Use the first league. fetch_nfl_leagues returns LeagueModel objects, not
+    # raw dicts, so these are attributes rather than .get() lookups.
     league = leagues[0]
-    print(f"\nUsing league: {league.get('name')} (ID: {league.get('league_id')})")
-    league_id = league.get('league_id')
+    print(f"\nUsing league: {league.name} (ID: {league.league_id})")
+    league_id = league.league_id
 
     # Get league details
     league_model = league_endpoint.get_league_by_id(league_id)
@@ -71,11 +81,14 @@ def main():
     print(f"Teams: {league_model.total_rosters}")
     print(f"Roster positions: {league_model.roster_positions}")
 
-    # Get player projections for current week
-    print(f"\nFetching player projections for week {nfl_state.week}...")
+    # Get player projections for a week that actually has data. In preseason
+    # the reported week is week 1 of a season that has not started, so the
+    # fallback above pairs it with week 1 of the completed season.
+    week = 1 if nfl_state.season_type == "pre" else int(nfl_state.week)
+    print(f"\nFetching player projections for week {week}...")
     projections = projections_endpoint.get_projections(
-        season=int(season),
-        week=nfl_state.week
+        season=season,
+        week=week
     )
     print(f"Loaded projections for {len(projections)} players")
 
@@ -83,11 +96,11 @@ def main():
     scoring_type = projections_endpoint.get_scoring_type(league_id)
     print(f"League scoring type: {scoring_type}")
 
-    # Get matchups for current week
-    print(f"\nFetching matchups for week {nfl_state.week}...")
+    # Get matchups for that week
+    print(f"\nFetching matchups for week {week}...")
     matchups = league_endpoint.get_matchups(
         league_id,
-        nfl_state.week,
+        week,
         convert_results=True
     )
 
@@ -104,6 +117,65 @@ def main():
         print(f"  Current Points: {matchup.points:.2f}")
         print(f"  Projected Points: {projected_points:.2f}")
 
+    # Fetch several weeks at once, concurrently.
+    #
+    # get_season_projections() defaults to max_workers=1 (sequential). Passing a
+    # higher value fans the weeks out over a thread pool, capped at 8. Results
+    # and key order are identical either way -- only the timing differs.
+    #
+    # The gain depends on connection reuse: each worker needs its own pooled
+    # connection, and a TLS handshake costs far more than a warm request. Over a
+    # cold pool with only a couple of weeks the fan-out can be a wash. It pays
+    # off with a long-lived client, more weeks, or higher round-trip latency.
+    # The run below reuses the client above, so its pool is already warm.
+    weeks_to_fetch = list(range(1, min(max(week, 6), 18) + 1))
+    if len(weeks_to_fetch) > 1:
+        print(f"\nBulk-fetching projections for weeks "
+              f"{weeks_to_fetch[0]}-{weeks_to_fetch[-1]}...")
+        start = time.perf_counter()
+        season_projections = projections_endpoint.get_season_projections(
+            season=season,
+            weeks=weeks_to_fetch,
+            max_workers=8
+        )
+        elapsed = time.perf_counter() - start
+
+        populated = [w for w, data in season_projections.items() if data]
+        print(f"  Fetched {len(populated)}/{len(weeks_to_fetch)} weeks "
+              f"in {elapsed:.2f}s")
+        # Weeks with no data come back as empty dicts rather than raising, so a
+        # single bad week never takes down the rest of the batch.
+        for fetched_week in weeks_to_fetch:
+            count = len(season_projections[fetched_week])
+            print(f"    Week {fetched_week:>2}: {count:>5,} players"
+                  + ("" if count else "  (no data)"))
+
+        # Track one player across every week fetched above. This reuses the
+        # cache the bulk call just populated, so it costs no extra requests.
+        # Pick the highest-projected player in the first populated week --
+        # taking whichever id happens to come first usually lands on an
+        # inactive player and prints a row of zeros.
+        sample_player = None
+        if populated:
+            first_week = season_projections[populated[0]]
+            sample_player = max(
+                first_week,
+                key=lambda pid: first_week[pid].get(scoring_type, 0.0) or 0.0,
+            )
+        if sample_player:
+            tracked = projections_endpoint.get_player_season_projections(
+                player_id=sample_player,
+                season=season,
+                weeks=weeks_to_fetch,
+                max_workers=8
+            )
+            points = [
+                f"W{w}:{proj.get(scoring_type, 0.0):.1f}"
+                for w, proj in tracked.items() if proj
+            ]
+            print(f"\n  Player {sample_player} by week ({scoring_type}): "
+                  f"{' '.join(points)}")
+
     # Show cache statistics
     print("\nCache Statistics:")
     stats = persistent_cache.get_stats()
@@ -111,7 +183,9 @@ def main():
     print(f"  Cache size: {stats['size_bytes']:,} bytes")
     print(f"  Cache directory: {stats['cache_dir']}")
 
-    print("\n✅ Example completed successfully!")
+    # Plain ASCII: Windows consoles default to cp1252, which cannot encode
+    # emoji, and a UnicodeEncodeError here would fail the script on its last line.
+    print("\nExample completed successfully!")
 
 
 if __name__ == "__main__":

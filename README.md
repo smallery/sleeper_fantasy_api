@@ -49,13 +49,18 @@ This project simplifies accessing the Sleeper API, allowing users to easily fetc
 To install locally, follow these steps:
 
 ### Prerequisites:
-- Python 3.10
+- Python 3.10+
 
 ### Installation:
 ```bash
+pip install sleeper_fantasy_api
+```
+
+### From source (for development):
+```bash
 git clone https://github.com/smallery/sleeper_fantasy_api.git
 cd sleeper_fantasy_api
-pip install -r requirements.txt
+pip install -e ".[dev]"
 ```
 
 ## Usage
@@ -79,10 +84,11 @@ user = user_endpoint.get_user("your_username")
 print(f"User: {user.display_name}")
 
 # Get user's leagues for 2024
-leagues = user_endpoint.get_leagues(user.user_id, 'nfl', '2024')
+leagues = user_endpoint.fetch_nfl_leagues(user.user_id, 2024)
 
-# Get league details
-league = league_endpoint.get_league_by_id(leagues[0]['league_id'])
+# Get league details. fetch_nfl_leagues returns LeagueModel objects,
+# so these are attributes rather than dict lookups.
+league = league_endpoint.get_league_by_id(leagues[0].league_id)
 print(f"League: {league.name}")
 ```
 
@@ -133,6 +139,17 @@ season_projections = projections_endpoint.get_season_projections(
     weeks=[1, 2, 3, 4]  # Or None for all 18 weeks
 )
 # Returns: {1: {players...}, 2: {players...}, 3: {players...}, 4: {players...}}
+
+# Pass max_workers to fetch the weeks concurrently (capped at 8) -- same
+# results, same key order. Measured on the live API, 18 weeks of the 2025
+# season over a warm connection: ~0.8s sequential vs ~0.35s with 8 workers.
+# The gain depends on connection reuse -- see the method docstring; over a
+# cold connection pool with only a few weeks it can be a wash.
+rest_of_season = projections_endpoint.get_season_projections(
+    season=2024,
+    weeks=list(range(10, 19)),
+    max_workers=8
+)
 
 # Option 4: Track one player across multiple weeks
 mahomes_season = projections_endpoint.get_player_season_projections(
@@ -290,8 +307,8 @@ The current endpoints available through the API are the following:
   - **Methods**:
     - `get_projections(season, week)` - Fetch all player projections for one week
     - `get_player_projection(player_id, season, week)` - Fetch single player projection for one week
-    - `get_season_projections(season, weeks=None)` - Bulk fetch projections across multiple weeks (or all 18 weeks)
-    - `get_player_season_projections(player_id, season, weeks=None)` - Track one player across multiple weeks
+    - `get_season_projections(season, weeks=None, max_workers=1)` - Bulk fetch projections across multiple weeks (or all 18 weeks); `max_workers > 1` fetches weeks concurrently
+    - `get_player_season_projections(player_id, season, weeks=None, max_workers=1)` - Track one player across multiple weeks
     - `calculate_team_projection(starters, projections, scoring_type)` - Calculate total team projection
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
   - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
@@ -320,7 +337,36 @@ Contributions are welcome! To contribute:
 5. Format code: `flake8 sleeper_api`
 6. Submit a pull request
 
-All PRs automatically run tests on Python 3.10, 3.11, and 3.12.
+All PRs automatically run tests on Python 3.10, 3.11, 3.12, and 3.13.
+
+## Releasing
+
+Releases publish to PyPI automatically on a version tag, via
+[PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) — there is
+no API token stored in this repo or on any developer machine.
+
+1. Bump `version` in `pyproject.toml` **and** `__version__` in
+   `sleeper_api/__init__.py` (the workflow refuses to publish if the tag
+   disagrees with either).
+2. Add the release notes to `CHANGELOG.md`.
+3. Merge to `main`, then tag and push:
+
+```bash
+git tag v0.4.0 && git push origin v0.4.0
+```
+
+`.github/workflows/publish.yml` then runs the test suite, builds the sdist and
+wheel, and uploads them.
+
+### A note on dependency pinning
+
+Runtime dependencies in `pyproject.toml` are declared as **ranges, never `==`
+pins**. pip applies a library's constraints to the consuming application's
+entire dependency resolution, so an exact pin here becomes an exact pin for
+everyone who installs this package — they cannot patch a CVE in a transitive
+dependency, and there is nothing they can do about it but wait for a new
+release. Applications pin; libraries constrain. Test-only tools belong in the
+`dev` extra, not in `[project.dependencies]`.
 
 ## License
 This project is licensed under the MIT License. See the `LICENSE` file for more information.
