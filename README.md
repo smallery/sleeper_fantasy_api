@@ -195,10 +195,23 @@ The `with` form above is fine for a script that runs to completion, which is
 the common case and why it's shown first. But **if anything in your program can
 cancel or time out these calls, use a long-lived client** whose shutdown cannot
 race outstanding work — hold it for the life of the process and close it once,
-during orderly shutdown, as in the FastAPI example below. If you must scope a
-client narrowly under cancellation, keep a reference to the task and await it
-(or `asyncio.shield` it) before leaving the block, so no worker outlives the
-session it is using.
+during orderly shutdown, as in the FastAPI example below.
+
+If you must scope a client narrowly under cancellation, the block has to wait
+for the worker itself. Note that `asyncio.shield` alone does **not** do this:
+it keeps the inner task from being cancelled, but the `await` on it still
+raises `CancelledError` immediately, so the `with` block unwinds anyway and
+closes the client while the worker runs on. You have to catch the cancellation
+and await the task before re-raising:
+
+```python
+task = asyncio.create_task(get_user(client, "your_username"))
+try:
+    user = await asyncio.shield(task)
+except asyncio.CancelledError:
+    await task          # let the worker finish before the client is closed
+    raise
+```
 
 `asyncio.to_thread` requires Python 3.9+; since this package requires
 3.10+, prefer it over the older, more verbose
