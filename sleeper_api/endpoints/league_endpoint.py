@@ -8,7 +8,6 @@ It supports optional conversion of results into model instances.
 """
 from typing import Any, Dict, List, Literal, Optional, Union, cast, overload
 
-from ..config import CONVERT_RESULTS
 from ..exceptions import LeagueNotFoundError
 from ..models.brackets import BracketModel
 from ..models.league import LeagueModel
@@ -118,7 +117,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/rosters"
         rosters_json = self.client.get(endpoint)
         if not convert_results:
@@ -147,7 +146,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/users"
         users_json = self.client.get(endpoint)
 
@@ -223,7 +222,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         # TO DO:   combine matchups into a single model
                 #  so you can find both teams in the same matchup object
@@ -254,7 +253,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/winners_bracket"
         bracket_json = self.client.get(endpoint)
 
@@ -282,7 +281,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/losers_bracket"
         bracket_json = self.client.get(endpoint)
 
@@ -310,7 +309,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/transactions/{week}"
         transactions_json = self.client.get(endpoint)
 
@@ -338,7 +337,7 @@ class LeagueEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/traded_picks"
         traded_picks_json = self.client.get(endpoint)
 
@@ -364,7 +363,7 @@ class LeagueEndpoint:
             NFLStateModel or dict with current season information.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = "state/nfl"
         state_data = self.client.get(endpoint)
 

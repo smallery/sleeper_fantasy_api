@@ -148,14 +148,25 @@ whole thread pool sharing one client) get a return type that only depends on
 what was actually asked for.
 
 **Typing**: `convert_results` changes the return *type*, not just the value
-(`LeagueModel` vs `dict`). The most-used endpoint methods carry
-`@typing.overload`s so that a literal `convert_results=True`/`False` gets you
-the precise type back (no `cast()` needed on your end), while an omitted
+(`LeagueModel` vs `dict`). Every endpoint method that takes `convert_results`
+carries `@typing.overload`s so that a literal `convert_results=True`/`False`
+gets you the precise type back (no `cast()` needed on your end) --
+**whether you pass it by keyword or positionally** -- while an omitted
 argument or a plain `bool` variable correctly widens to the `Union` -- the
 actual type in that case genuinely depends on the client's configured
 default, which isn't knowable statically. Combined with the `py.typed`
 marker this package ships (see Advanced Features above), this is checked by
 mypy on your side, not just documented here.
+
+**A note on `self.client.convert_results`**: this read is strict, with no
+fallback to a module-level default. If you construct an endpoint
+(`LeagueEndpoint(my_client)`, etc.) against something other than a real
+`SleeperClient` -- a hand-rolled test double or a wrapper/proxy around one --
+give it a `convert_results` attribute too, or always pass `convert_results=`
+explicitly on every call. A client missing the attribute raises
+`AttributeError` the moment a call needs to resolve the default, rather than
+silently inheriting `sleeper_api.config.CONVERT_RESULTS` as if nothing were
+wrong.
 
 ### Error Handling
 

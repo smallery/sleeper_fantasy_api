@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast, overload
 
 from platformdirs import user_cache_dir
 
-from ..config import CACHE_DURATION, CONVERT_RESULTS
+from ..config import CACHE_DURATION
 from ..exceptions import SleeperAPIError
 from ..models.player import PlayerModel
 
@@ -82,7 +82,11 @@ class PlayerEndpoint:
     @overload
     def get_all_players(self, sport: str = 'nfl', *, convert_results: Literal[True]) -> List[PlayerModel]: ...
     @overload
+    def get_all_players(self, sport: str, convert_results: Literal[True]) -> List[PlayerModel]: ...
+    @overload
     def get_all_players(self, sport: str = 'nfl', *, convert_results: Literal[False]) -> Dict[str, Dict]: ...
+    @overload
+    def get_all_players(self, sport: str, convert_results: Literal[False]) -> Dict[str, Dict]: ...
     @overload
     def get_all_players(
         self, sport: str = 'nfl', convert_results: Optional[bool] = None
@@ -98,7 +102,7 @@ class PlayerEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         players_json = self._load_cache() if self._is_cache_valid() else None
 
@@ -137,8 +141,18 @@ class PlayerEndpoint:
     ) -> List[PlayerModel]: ...
     @overload
     def get_trending_players(
+        self, trend_type: str, sport: str, lookback_hours: Optional[int],
+        limit: Optional[int], convert_results: Literal[True]
+    ) -> List[PlayerModel]: ...
+    @overload
+    def get_trending_players(
         self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
         limit: Optional[int] = 25, *, convert_results: Literal[False]
+    ) -> List[Dict[str, Any]]: ...
+    @overload
+    def get_trending_players(
+        self, trend_type: str, sport: str, lookback_hours: Optional[int],
+        limit: Optional[int], convert_results: Literal[False]
     ) -> List[Dict[str, Any]]: ...
     @overload
     def get_trending_players(
@@ -165,7 +179,7 @@ class PlayerEndpoint:
             raise SleeperAPIError("Trend type must either be add or drop.")
 
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         # Query params go through the client's params= (which requests
         # URL-encodes), not hand-built into the path -- interpolating values
@@ -221,7 +235,11 @@ class PlayerEndpoint:
     @overload
     def search_players(self, search_keys: Dict[str, Any], *, convert_results: Literal[True]) -> List[PlayerModel]: ...
     @overload
+    def search_players(self, search_keys: Dict[str, Any], convert_results: Literal[True]) -> List[PlayerModel]: ...
+    @overload
     def search_players(self, search_keys: Dict[str, Any], *, convert_results: Literal[False]) -> List[Dict]: ...
+    @overload
+    def search_players(self, search_keys: Dict[str, Any], convert_results: Literal[False]) -> List[Dict]: ...
     @overload
     def search_players(
         self, search_keys: Dict[str, Any], convert_results: Optional[bool] = None
@@ -241,7 +259,7 @@ class PlayerEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         def safe_search_type(record, key, value):
             record_value = record.get(key)

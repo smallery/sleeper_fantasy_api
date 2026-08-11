@@ -120,6 +120,22 @@ class TestEndpointsReadClientConvertResultsDefault(unittest.TestCase):
 
         self.assertIsInstance(result, UserModel)
 
+    def test_get_user_positional_convert_results_still_works_at_runtime(self):
+        # Regression coverage for the PR #31 review finding: the @overload
+        # set makes the Literal[True]/Literal[False] overloads keyword-only
+        # in one variant and positional-required in another specifically so
+        # a fully positional call like this still resolves to the precise
+        # type under mypy, not just at runtime. This test only proves the
+        # runtime half (overloads don't affect execution); the static half
+        # is proven by the mypy scratch check in the PR description.
+        client = self._mock_client(True)
+        client.get.return_value = self.USER_JSON
+        endpoint = UserEndpoint(client)
+
+        result = endpoint.get_user(None, "u1", True)
+
+        self.assertIsInstance(result, UserModel)
+
     def test_draft_endpoint_honors_false_client_default(self):
         client = self._mock_client(False)
         client.get.return_value = {"draft_id": "d1", "status": "complete"}
@@ -153,13 +169,24 @@ class TestEndpointsReadClientConvertResultsDefault(unittest.TestCase):
         self.assertEqual(result, [{"week": 1, "home": "SF", "away": "KC"}])
 
 
-class TestConvertResultsFallsBackForDuckTypedClients(unittest.TestCase):
+class TestConvertResultsReadIsStrictForDuckTypedClients(unittest.TestCase):
     """
     An endpoint can be constructed against any object exposing `.get()` --
-    not necessarily a real SleeperClient (e.g. a caller's own test double).
-    Such an object has no `.convert_results` attribute, so the lookup falls
-    back to the same CONVERT_RESULTS default a bare `SleeperClient()` gets,
-    instead of raising AttributeError.
+    not necessarily a real SleeperClient (e.g. a caller's own test double or
+    wrapper). Reading `self.client.convert_results` is deliberately strict
+    (no `getattr(..., CONVERT_RESULTS)` fallback to the module default): a
+    client-like object is expected to carry this attribute the same way a
+    real `SleeperClient` does. A client missing it fails loudly with
+    `AttributeError` when a call omits `convert_results` and needs to
+    resolve the default, rather than silently inheriting
+    `sleeper_api.config.CONVERT_RESULTS` as if nothing were wrong (PR #31
+    review discussion -- a wrapper/proxy that forgets to forward this
+    attribute should surface immediately, not return silently-different
+    types down the line).
+
+    A per-call `convert_results=` argument still bypasses this entirely --
+    the client is never consulted when the caller says explicitly what they
+    want.
     """
 
     class BareClient:
@@ -170,17 +197,27 @@ class TestConvertResultsFallsBackForDuckTypedClients(unittest.TestCase):
         def get(self, endpoint, params=None):
             return self.payload
 
-    def test_missing_convert_results_attribute_falls_back_to_default(self):
-        roster_json = [{
-            "roster_id": 1, "owner_id": "u1", "league_id": "l1",
-            "players": [], "starters": [], "settings": {}, "reserve": [],
-        }]
-        client = self.BareClient(roster_json)
+    ROSTER_JSON = [{
+        "roster_id": 1, "owner_id": "u1", "league_id": "l1",
+        "players": [], "starters": [], "settings": {}, "reserve": [],
+    }]
+
+    def test_missing_convert_results_attribute_raises_on_omitted_call(self):
+        client = self.BareClient(self.ROSTER_JSON)
         endpoint = LeagueEndpoint(client)
 
-        result = endpoint.get_rosters("league1")
+        with self.assertRaises(AttributeError):
+            endpoint.get_rosters("league1")
 
-        # CONVERT_RESULTS defaults True, so the fallback should convert.
+    def test_missing_convert_results_attribute_is_fine_with_explicit_override(self):
+        # An explicit per-call convert_results= never needs to read
+        # self.client.convert_results at all, so a client missing the
+        # attribute works fine as long as every call is explicit about it.
+        client = self.BareClient(self.ROSTER_JSON)
+        endpoint = LeagueEndpoint(client)
+
+        result = endpoint.get_rosters("league1", convert_results=True)
+
         self.assertIsInstance(result[0], RosterModel)
 
 

@@ -242,12 +242,20 @@ all three change the client/endpoint contract.
   silently fight over it and flip each other's return types. `convert_results`
   now lives on `SleeperClient` itself; every endpoint method reads
   `self.client.convert_results` as its default when the argument is omitted,
-  and an explicit per-call `convert_results=` still overrides it. Not breaking
-  for the common case (nothing changes if you never touched `CONVERT_RESULTS`
-  or always passed `convert_results=` explicitly); breaking only for code that
-  imported and mutated `sleeper_api.config.CONVERT_RESULTS` directly, which
-  was never a documented, supported way to change the default and has no
-  effect on client behavior now.
+  and an explicit per-call `convert_results=` still overrides it. This read
+  is strict -- a `client`-like object missing the attribute raises
+  `AttributeError` on an omitted call rather than silently falling back to
+  `sleeper_api.config.CONVERT_RESULTS`, so a wrapper/proxy around
+  `SleeperClient` that forgets to forward the attribute fails loudly instead
+  of quietly returning the wrong type (see PR #31 review discussion). Not
+  breaking for the common case (nothing changes if you never touched
+  `CONVERT_RESULTS` or always passed `convert_results=` explicitly); breaking
+  for code that imported and mutated `sleeper_api.config.CONVERT_RESULTS`
+  directly (never a documented, supported way to change the default, and now
+  has no effect on client behavior), and for any hand-rolled client-like
+  object passed straight into an `*Endpoint(client)` constructor without a
+  `convert_results` attribute -- give it one (`client.convert_results = True`
+  or whatever the intended default is).
 
 ### Added
 - **`sleeper_api` now ships a `py.typed` marker (PEP 561)** (#19). The
@@ -258,22 +266,35 @@ all three change the client/endpoint contract.
   `[tool.setuptools.package-data]` in `pyproject.toml` and verified present in
   both the built wheel and the sdist (`python -m build`, then
   `unzip -l dist/*.whl | grep py.typed` / same for the `.tar.gz`).
-- **`@typing.overload` on `convert_results` for the most-used endpoint
-  methods** (#19 + #24, done together since `py.typed` makes the existing
+- **`@typing.overload` on `convert_results` for every endpoint method that
+  has it** (#19 + #24, done together since `py.typed` makes the existing
   `Union[List[Dict], List[Model]]` annotations a real downstream contract
   instead of a formality). A literal `convert_results=True`/`False` call now
   gets the precise return type (`List[RosterModel]` vs `List[Dict]`, etc.)
-  with no `cast()` needed; an omitted argument or a plain `bool` variable
-  correctly widens to the `Union`, since the real return type in that case
-  depends on the client's configured default and isn't knowable statically.
-  Applied to every `convert_results`-bearing method across
-  `LeagueEndpoint`, `UserEndpoint`, `DraftEndpoint`, `PlayerEndpoint`, and
-  `NFLEndpoint` (`ProjectionsEndpoint` has no `convert_results` parameter, so
-  nothing to overload there). Verified against a scratch consumer outside the
-  package, run through mypy with the built wheel installed -- see the PR
-  description for the full before/after mypy output (revealed types go from
-  `Any` everywhere to precise model/dict types, and a deliberate typo goes
-  from silently ignored to a real `[attr-defined]` error).
+  with no `cast()` needed, **whether passed by keyword or positionally**; an
+  omitted argument or a plain `bool` variable correctly widens to the
+  `Union`, since the real return type in that case depends on the client's
+  configured default and isn't knowable statically. Applied to every
+  `convert_results`-bearing method across `LeagueEndpoint`, `UserEndpoint`,
+  `DraftEndpoint`, `PlayerEndpoint`, and `NFLEndpoint` (`ProjectionsEndpoint`
+  has no `convert_results` parameter, so nothing to overload there).
+  Methods with optional parameters ahead of `convert_results` (`get_user`,
+  `fetch_nfl_leagues`, `get_all_drafts`, `get_drafts_by_user`,
+  `get_trending_players`, `get_all_players`, `search_players`,
+  `get_schedule`) carry a second, fully-positional overload per literal
+  alongside the keyword-friendly one, so a call supplying every argument
+  positionally (matching the pre-existing runtime signature) narrows exactly
+  as well as a keyword call does -- caught in review (credit to `@codex`'s
+  pass on this PR) after the first version of these overloads made the
+  literal narrow only for keyword calls, silently falling through to the
+  wide `Union` for positional ones. Verified against a scratch consumer
+  outside the package, run through mypy with the built wheel installed --
+  see the PR description for the full before/after mypy output (revealed
+  types go from `Any` everywhere to precise model/dict types pre-`py.typed`;
+  a deliberate typo goes from silently ignored to a real `[attr-defined]`
+  error; and every overloaded method's positional-literal call narrows
+  correctly post-fix, where several methods previously fell back to a wide
+  `Union`).
 - README: "Configuring `convert_results`" section documenting the new
   client-level default, the per-call override, and why the rejected global
   sketch in `config.py` isn't the shape this took. Removed the "Planned

@@ -5,6 +5,15 @@ from sleeper_api.exceptions import SleeperAPIError
 
 class MockClient:
     """A mock client to simulate API responses."""
+    # Endpoints read self.client.convert_results as their default when a
+    # call doesn't specify convert_results (see issue #24) -- the read is
+    # strict (no getattr fallback to a module default), by design: a
+    # client-like object is expected to carry this attribute the same way a
+    # real SleeperClient does, so a wrapper/test double that forgets it
+    # fails loudly with AttributeError instead of silently inheriting
+    # sleeper_api.config.CONVERT_RESULTS.
+    convert_results = True
+
     def get(self, endpoint):
         if "12345" in endpoint or "test_user" in endpoint:
             return {

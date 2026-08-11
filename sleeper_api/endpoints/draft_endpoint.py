@@ -11,7 +11,7 @@ and by user, as well as handling the conversion of results into model instances.
 
 from typing import Dict, List, Literal, Optional, Union, overload
 
-from ..config import CONVERT_RESULTS, get_current_season
+from ..config import get_current_season
 from ..models.draft import DraftModel
 from ..models.picks import PicksModel
 from ..models.traded_picks import TradedPickModel
@@ -90,7 +90,7 @@ class DraftEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"draft/{draft_id}"
         draft_json = self.client.get(endpoint)
 
@@ -118,7 +118,7 @@ class DraftEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"league/{league_id}/drafts"
         drafts_json = self.client.get(endpoint)
 
@@ -133,7 +133,15 @@ class DraftEndpoint:
     ) -> List[DraftModel]: ...
     @overload
     def get_drafts_by_user(
+        self, user_id: str, sport: str, season: Optional[int], convert_results: Literal[True]
+    ) -> List[DraftModel]: ...
+    @overload
+    def get_drafts_by_user(
         self, user_id: str, sport: str = 'nfl', season: Optional[int] = None, *, convert_results: Literal[False]
+    ) -> List[Dict]: ...
+    @overload
+    def get_drafts_by_user(
+        self, user_id: str, sport: str, season: Optional[int], convert_results: Literal[False]
     ) -> List[Dict]: ...
     @overload
     def get_drafts_by_user(
@@ -160,7 +168,7 @@ class DraftEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         season_to_fetch = (
             season if season is not None
@@ -198,7 +206,7 @@ class DraftEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"draft/{draft_id}/picks"
         picks_json = self.client.get(endpoint)
 
@@ -226,7 +234,7 @@ class DraftEndpoint:
             `convert_results` default.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
         endpoint = f"draft/{draft_id}/traded_picks"
         traded_pick_json = self.client.get(endpoint)
 

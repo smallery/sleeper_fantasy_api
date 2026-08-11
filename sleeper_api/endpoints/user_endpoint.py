@@ -1,6 +1,6 @@
 from typing import Dict, List, Literal, Optional, Union, cast, overload
 
-from ..config import CONVERT_RESULTS, get_current_season
+from ..config import get_current_season
 from ..exceptions import SleeperAPIError, UserNotFoundError
 from ..models.draft import DraftModel
 from ..models.league import LeagueModel
@@ -26,7 +26,15 @@ class UserEndpoint:
     ) -> UserModel: ...
     @overload
     def get_user(
+        self, user_id: Optional[str], username: Optional[str], convert_results: Literal[True]
+    ) -> UserModel: ...
+    @overload
+    def get_user(
         self, user_id: Optional[str] = None, username: Optional[str] = None, *, convert_results: Literal[False]
+    ) -> Dict: ...
+    @overload
+    def get_user(
+        self, user_id: Optional[str], username: Optional[str], convert_results: Literal[False]
     ) -> Dict: ...
     @overload
     def get_user(
@@ -57,7 +65,7 @@ class UserEndpoint:
             raise SleeperAPIError("You must provide either user_id or username.")
 
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         endpoint = f"user/{user_id}" if user_id else f"user/{username}"
         user_data = self.client.get(endpoint)
@@ -78,7 +86,15 @@ class UserEndpoint:
     ) -> List[LeagueModel]: ...
     @overload
     def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int], convert_results: Literal[True]
+    ) -> List[LeagueModel]: ...
+    @overload
+    def fetch_nfl_leagues(
         self, user_id: str, season: Optional[int] = None, *, convert_results: Literal[False]
+    ) -> List[Dict]: ...
+    @overload
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int], convert_results: Literal[False]
     ) -> List[Dict]: ...
     @overload
     def fetch_nfl_leagues(
@@ -114,7 +130,7 @@ class UserEndpoint:
         :raises: SleeperAPIError if the requested season is out of range.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         default_season = get_current_season(self.client)
         season_to_fetch = season if season is not None else default_season
@@ -162,9 +178,25 @@ class UserEndpoint:
     def get_all_drafts(
         self,
         user_id: str,
+        sport: str,
+        season: Optional[int],
+        convert_results: Literal[True],
+    ) -> List[DraftModel]: ...
+    @overload
+    def get_all_drafts(
+        self,
+        user_id: str,
         sport: str = 'nfl',
         season: Optional[int] = None,
         *,
+        convert_results: Literal[False],
+    ) -> List[Dict]: ...
+    @overload
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str,
+        season: Optional[int],
         convert_results: Literal[False],
     ) -> List[Dict]: ...
     @overload
@@ -203,7 +235,7 @@ class UserEndpoint:
         :raises: SleeperAPIError if no drafts are found.
         """
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         season_to_fetch = (
             season if season is not None

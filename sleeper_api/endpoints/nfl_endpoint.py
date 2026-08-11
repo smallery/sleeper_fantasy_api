@@ -8,7 +8,6 @@ import logging
 from datetime import datetime
 from typing import List, Literal, Optional, Union, overload
 
-from ..config import CONVERT_RESULTS
 from ..exceptions import SleeperAPIError
 from ..models.schedule import NFLScheduleModel
 from ..models.team_depth_chart import TeamDepthChartModel
@@ -87,7 +86,7 @@ class NFLEndpoint:
             raise ValueError("Team abbreviation must be a non-empty string")
 
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         # Team abbreviations are typically 2-3 uppercase letters
         team = team.upper()
@@ -111,7 +110,15 @@ class NFLEndpoint:
     ) -> NFLScheduleModel: ...
     @overload
     def get_schedule(
+        self, year: int, postseason: bool, convert_results: Literal[True]
+    ) -> NFLScheduleModel: ...
+    @overload
+    def get_schedule(
         self, year: int, postseason: bool = False, *, convert_results: Literal[False]
+    ) -> List[dict]: ...
+    @overload
+    def get_schedule(
+        self, year: int, postseason: bool, convert_results: Literal[False]
     ) -> List[dict]: ...
     @overload
     def get_schedule(
@@ -152,7 +159,7 @@ class NFLEndpoint:
         current_year = datetime.now().year
 
         if convert_results is None:
-            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+            convert_results = self.client.convert_results
 
         # Validate year
         if year < MIN_SCHEDULE_YEAR:
@@ -182,9 +189,9 @@ class NFLEndpoint:
         return NFLScheduleModel.from_list(schedule_data, year=year, season_type=season_type)
 
     @overload
-    def get_regular_season_schedule(self, year: int, *, convert_results: Literal[True]) -> NFLScheduleModel: ...
+    def get_regular_season_schedule(self, year: int, convert_results: Literal[True]) -> NFLScheduleModel: ...
     @overload
-    def get_regular_season_schedule(self, year: int, *, convert_results: Literal[False]) -> List[dict]: ...
+    def get_regular_season_schedule(self, year: int, convert_results: Literal[False]) -> List[dict]: ...
     @overload
     def get_regular_season_schedule(
         self, year: int, convert_results: Optional[bool] = None
@@ -209,9 +216,9 @@ class NFLEndpoint:
         return self.get_schedule(year, postseason=False, convert_results=convert_results)
 
     @overload
-    def get_postseason_schedule(self, year: int, *, convert_results: Literal[True]) -> NFLScheduleModel: ...
+    def get_postseason_schedule(self, year: int, convert_results: Literal[True]) -> NFLScheduleModel: ...
     @overload
-    def get_postseason_schedule(self, year: int, *, convert_results: Literal[False]) -> List[dict]: ...
+    def get_postseason_schedule(self, year: int, convert_results: Literal[False]) -> List[dict]: ...
     @overload
     def get_postseason_schedule(
         self, year: int, convert_results: Optional[bool] = None
