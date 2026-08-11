@@ -50,6 +50,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replacing its comparison-operator `if`/`elif` chain with a dispatch table,
   bringing it under the project's `max-complexity=15` (previously unenforced
   due to `flake8 --exit-zero`).
+- **`PersistentCache` metadata is now per-key, not one shared file.** Previously
+  every `set()` read and rewrote the entire `cache_metadata.json` index, so cost
+  grew with total entry count -- measured at 27ms/call at 5,000 entries versus
+  1.4ms at 10 (see the perf table in PR description). Each cache key now owns
+  its own sidecar metadata file (`<key>.meta`) written directly, so `set()` and
+  `invalidate()` cost is flat regardless of how many other entries exist.
+  **On-disk format change**: cache directories written by this or earlier
+  versions used a single `cache_metadata.json`. That file is still read
+  transparently as a fallback -- the first access to a not-yet-migrated key
+  promotes it to a sidecar file -- so existing cache directories keep working
+  without intervention. `cleanup_expired()` also sweeps any entries left behind
+  in the legacy index. No action is required, but a cache directory shared
+  read-only with an older version of this library (rare) would not see new
+  entries written by that older version reflected in the new sidecar files
+  until this version has also touched them.
+- **`get()` on an expired entry now reads that key's metadata once, not
+  twice.** It previously loaded the metadata, decided the entry was expired,
+  then called `invalidate()`, which loaded the same metadata again. Fixed by
+  having `get()` hand its already-loaded metadata to an internal
+  `_invalidate_locked()` instead of re-reading it.
+- **A cache file with no metadata entry anywhere now fails closed.** `get()`
+  used to treat a missing metadata entry as "never expires" and serve that
+  file indefinitely -- which is what made the metadata write race fixed
+  alongside the concurrent-projections work silently *damaging* (permanently
+  stale data) rather than merely lossy. It's now treated as expired: the
+  entry is not served, and the orphaned data file is removed so it isn't
+  re-evaluated on every future `get()`.
 
 ## [0.4.0] - 2026-08-10
 
