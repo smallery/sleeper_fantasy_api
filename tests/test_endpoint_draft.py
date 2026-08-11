@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from sleeper_api.endpoints.draft_endpoint import DraftEndpoint
 from sleeper_api.exceptions import SleeperAPIError
 from sleeper_api.models.draft import DraftModel
@@ -12,6 +12,27 @@ class TestDraftEndpoint(unittest.TestCase):
     def setUp(self):
         self.client = MagicMock()
         self.endpoint = DraftEndpoint(self.client)
+
+    def test_get_drafts_by_user_uses_current_season_by_default(self):
+        # season now defaults to None and is resolved via get_current_season()
+        # against GET /state/nfl instead of the frozen-at-import DEFAULT_SEASON
+        # constant (see issue #18).
+        with patch(
+            "sleeper_api.endpoints.draft_endpoint.get_current_season", return_value=2025
+        ) as mock_get_current_season:
+            self.client.get.return_value = []
+            self.endpoint.get_drafts_by_user(user_id="12345678")
+            mock_get_current_season.assert_called_once_with(self.client)
+            self.client.get.assert_called_with("user/12345678/drafts/nfl/2025")
+
+    def test_get_drafts_by_user_explicit_season_skips_resolution(self):
+        with patch(
+            "sleeper_api.endpoints.draft_endpoint.get_current_season"
+        ) as mock_get_current_season:
+            self.client.get.return_value = []
+            self.endpoint.get_drafts_by_user(user_id="12345678", season=2019)
+            mock_get_current_season.assert_not_called()
+            self.client.get.assert_called_with("user/12345678/drafts/nfl/2019")
 
     def test_get_draft_by_id_success(self):
         # Mock draft data

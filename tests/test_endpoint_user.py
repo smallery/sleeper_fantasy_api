@@ -1,14 +1,55 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from sleeper_api.endpoints.user_endpoint import UserEndpoint
 from sleeper_api.models.league import LeagueModel
-from sleeper_api.exceptions import SleeperAPIError
+from sleeper_api.models.user import UserModel
+from sleeper_api.exceptions import SleeperAPIError, UserNotFoundError
 
 class TestUserEndpoint(unittest.TestCase):
 
     def setUp(self):
         self.client = MagicMock()
         self.endpoint = UserEndpoint(self.client)
+        # fetch_nfl_leagues/get_all_drafts resolve the current season (for
+        # the upper-bound check / the default) via get_current_season(),
+        # which itself calls client.get("state/nfl"). Patching it directly
+        # keeps these tests about league/draft behavior, not season
+        # resolution (that has its own coverage in test_config.py), and
+        # avoids the plain MagicMock client returning mismatched shapes for
+        # whichever call happens to hit the state endpoint.
+        patcher = patch(
+            "sleeper_api.endpoints.user_endpoint.get_current_season", return_value=2025
+        )
+        self.mock_get_current_season = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_get_user_by_username_success(self):
+        self.client.get.return_value = {
+            "username": "sleeperuser",
+            "user_id": "12345678",
+            "display_name": "SleeperUser",
+            "avatar": "cc12ec49965eb7856f84d71cf85306af",
+        }
+
+        user = self.endpoint.get_user(username="sleeperuser")
+        self.assertIsInstance(user, UserModel)
+        self.assertEqual(user.user_id, "12345678")
+
+    def test_get_user_unknown_username_raises_user_not_found_error(self):
+        # SleeperClient._handle_response() returns None on 404 -- get_user()
+        # is the endpoint method that turns that into a raise, since a
+        # missing user was looked up by name, not an optional resource
+        # (see issue #17).
+        self.client.get.return_value = None
+
+        with self.assertRaises(UserNotFoundError) as context:
+            self.endpoint.get_user(username="definitely-not-real-zzzz")
+
+        self.assertEqual(context.exception.username, "definitely-not-real-zzzz")
+
+    def test_get_user_neither_id_nor_username_raises_sleeper_api_error(self):
+        with self.assertRaises(SleeperAPIError):
+            self.endpoint.get_user()
 
     def test_fetch_nfl_leagues_success(self):
         # Mock league data response
@@ -62,14 +103,41 @@ class TestUserEndpoint(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2023)
 
-    def test_fetch_nfl_leagues_no_leagues_found(self):
-        # Mock no leagues found case
+    def test_fetch_nfl_leagues_no_leagues_found_returns_empty_list(self):
+        # A user simply having no leagues in a season is a normal outcome,
+        # not an error -- fetch_nfl_leagues used to raise SleeperAPIError
+        # here, which collided badly with issue #18 (the wrong default
+        # season made this fire routinely). See issue #21.
         self.client.get.return_value = []
 
-        with self.assertRaises(SleeperAPIError) as context:
-            self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2023)
+        leagues = self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2023)
+        self.assertEqual(leagues, [])
 
-        self.assertEqual(str(context.exception), "No League data found for the 2023 season.")
+    def test_fetch_nfl_leagues_uses_current_season_by_default(self):
+        self.client.get.return_value = []
+        self.endpoint.fetch_nfl_leagues(user_id="12345678")
+        self.client.get.assert_called_with("user/12345678/leagues/nfl/2025")
+
+    def test_fetch_nfl_leagues_future_season_raises(self):
+        with self.assertRaises(SleeperAPIError):
+            self.endpoint.fetch_nfl_leagues(user_id="12345678", season=2099)
+
+    def test_get_all_drafts_uses_current_season_by_default(self):
+        self.client.get.return_value = []
+        with self.assertRaises(SleeperAPIError):
+            # Empty result still raises here -- get_all_drafts' empty-result
+            # behavior is unchanged by this batch (only fetch_nfl_leagues's
+            # was in scope for issue #21). This test is about the season
+            # defaulting through to the request URL.
+            self.endpoint.get_all_drafts(user_id="12345678")
+        self.client.get.assert_called_with("user/12345678/drafts/nfl/2025")
+
+    def test_get_all_drafts_explicit_season_skips_resolution(self):
+        self.client.get.return_value = []
+        with self.assertRaises(SleeperAPIError):
+            self.endpoint.get_all_drafts(user_id="12345678", season=2019)
+        self.client.get.assert_called_with("user/12345678/drafts/nfl/2019")
+
 
 if __name__ == '__main__':
     unittest.main()
