@@ -347,11 +347,11 @@ Cancelling an `await asyncio.to_thread(...)` — via `asyncio.wait_for`, a
 timeout, or task cancellation — abandons the *awaitable*, but it cannot stop
 the worker thread, which keeps running the request to completion. If that
 cancellation also unwinds a `with SleeperClient()` block, the client is closed
-while the worker is still using it. A *new* request from that worker fails
-fast with `RuntimeError` (the closed-client guard), which is noisy but safe.
-A request already inside its retry loop is the sharper case: the closed check
-runs when a request starts, not between retries, so it can open a fresh
-connection *after* `close()`.
+while the worker is still using it. Any request from that worker — a new one,
+or one already inside its retry loop and asleep between attempts — fails fast
+with `RuntimeError` (the closed-client guard, rechecked on every retry
+iteration as well as on entry), which is noisy but safe: it cannot open a
+fresh connection after `close()`.
 
 The `with` form above is fine for a script that runs to completion, which is
 the common case and why it's shown first. But **if anything in your program can
@@ -536,6 +536,19 @@ for week, proj in mahomes_season.items():
     if proj:
         print(f"Week {week}: {proj.get('pts_ppr')} projected PPR points")
 
+# Option 5: Only need the points fields? Pass `fields` to trim what's
+# returned -- e.g. ~522KB/week full vs ~156KB for just these three fields
+# (measured live, 2025 week 1). The cache is unaffected: it always stores
+# the full payload for a (season, week) regardless of `fields`, so this
+# only shrinks this call's own copy of the result, not the cache directory
+# or later full-payload requests. See ProjectionsEndpoint.get_projections()'s
+# docstring for the full reasoning.
+ppr_only = projections_endpoint.get_projections(
+    season=int(nfl_state.season),
+    week=nfl_state.week,
+    fields=("pts_ppr", "pts_half_ppr", "pts_std"),
+)
+
 # Get actual points scored (after games are played)
 matchups = league_endpoint.get_matchups(league_id, nfl_state.week, convert_results=True)
 for matchup in matchups:
@@ -680,14 +693,14 @@ The current endpoints available through the API are the following:
 - **Projections Endpoint**:
   - `projections_endpoint`: Access weekly player projections from Sleeper
   - **Methods**:
-    - `get_projections(season, week)` - Fetch all player projections for one week
-    - `get_player_projection(player_id, season, week)` - Fetch single player projection for one week
-    - `get_season_projections(season, weeks=None, max_workers=1)` - Bulk fetch projections across multiple weeks (or all 18 weeks); `max_workers > 1` fetches weeks concurrently
-    - `get_player_season_projections(player_id, season, weeks=None, max_workers=1)` - Track one player across multiple weeks
+    - `get_projections(season, week, fields=None)` - Fetch all player projections for one week; pass `fields` (e.g. `("pts_ppr",)`) to trim each player's dict to just those fields
+    - `get_player_projection(player_id, season, week, fields=None)` - Fetch single player projection for one week
+    - `get_season_projections(season, weeks=None, max_workers=1, fields=None)` - Bulk fetch projections across multiple weeks (or all 18 weeks); `max_workers > 1` fetches weeks concurrently
+    - `get_player_season_projections(player_id, season, weeks=None, max_workers=1, fields=None)` - Track one player across multiple weeks
     - `calculate_team_projection(starters, projections, scoring_type)` - Calculate total team projection
     - `get_scoring_type(league_id)` - Auto-detect league scoring format (PPR/Half-PPR/Standard)
-  - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.)
-  - Uses persistent file caching (24-hour TTL) to minimize API calls
+  - Returns complete projection data: pts_ppr, pts_half_ppr, pts_std, plus individual stats (pass_yd, rush_yd, rec, etc.) -- or just the `fields` you asked for
+  - Uses persistent file caching (24-hour TTL) to minimize API calls -- the cache always stores the full payload regardless of `fields`; see `get_projections()`'s docstring for why
 
 - **NFL Endpoint**:
   - `nfl_endpoint`: Access NFL-specific data (undocumented Sleeper API endpoints)

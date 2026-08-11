@@ -4,9 +4,10 @@ with player projections from the Sleeper API.
 
 Note: This uses an undocumented Sleeper endpoint that may change.
 """
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, List, Optional
+from typing import Dict, FrozenSet, Iterable, List, Optional
 
 from ..exceptions import SleeperAPIError
 from ..persistent_cache import PersistentCache
@@ -20,6 +21,74 @@ NFL_REGULAR_SEASON_WEEKS = 18
 # so this bounds peak memory as much as it bounds connections, and it stays
 # under the client session's pool_maxsize of 20.
 MAX_CONCURRENT_WEEK_FETCHES = 8
+
+
+def _materialize_fields(fields: Optional[Iterable[str]]) -> Optional[FrozenSet[str]]:
+    """
+    Materialize a caller-supplied `fields` iterable into a `frozenset`, once,
+    at the boundary where it enters this module.
+
+    `fields` is typed `Optional[Iterable[str]]` so any iterable is accepted
+    -- including a one-shot generator or iterator. That is fine for a single
+    use, but `get_season_projections()` (and, through it,
+    `get_player_season_projections()`) forwards the *same* `fields` object
+    to a separate `get_projections()` call per week. If that object is a
+    generator, the first week's filter exhausts it and every later week
+    silently filters against an empty set -- empty per-player dicts, no
+    exception, no warning, easily misread as "Sleeper had no data for this
+    week." Under `max_workers > 1` it's worse: whichever week's thread
+    happens to consume the generator first wins, so the bug is
+    nondeterministic across runs. See PR #32 review.
+
+    Calling this once, immediately, at every public method that accepts
+    `fields` -- before it is used or forwarded anywhere else -- closes this
+    off structurally: a `frozenset` can be iterated any number of times and
+    shared read-only across threads safely, so no downstream call site (this
+    module has several) needs to know or care whether the original argument
+    was list-like or a one-shot iterator.
+
+    Args:
+        fields: Caller-supplied iterable of field names, or None.
+
+    Returns:
+        None if `fields` is None, else a frozenset of its contents.
+    """
+    if fields is None:
+        return None
+    return frozenset(fields)
+
+
+def _filter_projection_fields(
+    projections: Dict[str, Dict], fields: Optional[Iterable[str]]
+) -> Dict[str, Dict]:
+    """
+    Trim each player's projection dict down to just `fields`, if given.
+
+    This is the read side of the #15/#16 strategy decision: the cache always
+    stores (and get_projections() always fetches) the complete payload --
+    only the value handed back to *this* caller is filtered. See
+    get_projections()'s docstring for the full reasoning.
+
+    Args:
+        projections: Full player_id -> projection-stats mapping.
+        fields: Iterable of field names to keep in each player's dict, or
+            None to return every field.
+
+    Returns:
+        `projections` itself, unchanged, if `fields` is None -- so an
+        unfiltered call costs nothing extra and existing callers see no
+        behavior change. Otherwise a new dict of new per-player dicts,
+        each containing only keys present in `fields` (missing fields are
+        simply absent, not filled in with a default).
+    """
+    if fields is None:
+        return projections
+
+    field_set = frozenset(fields)
+    return {
+        player_id: {k: v for k, v in player_data.items() if k in field_set}
+        for player_id, player_data in projections.items()
+    }
 
 
 class ProjectionsEndpoint:
@@ -41,7 +110,9 @@ class ProjectionsEndpoint:
         self.client = client
         self.persistent_cache = persistent_cache or PersistentCache(default_ttl_hours=24.0)
 
-    def get_projections(self, season: int, week: int) -> Dict[str, Dict]:
+    def get_projections(
+        self, season: int, week: int, fields: Optional[Iterable[str]] = None
+    ) -> Dict[str, Dict]:
         """
         Fetch all player projections for a specific week.
 
@@ -51,6 +122,12 @@ class ProjectionsEndpoint:
         Args:
             season: NFL season year (e.g., 2024).
             week: Week number (1-18).
+            fields: Optional iterable of projection field names to keep in
+                the returned data, e.g. ``("pts_ppr",)``. When given, each
+                player's dict in the result is trimmed to just these fields.
+                Defaults to None, which returns every field -- existing
+                calls are unaffected. See "Caching and `fields`" below for
+                what this does and doesn't change about the cache. (#16)
 
         Returns:
             Dict mapping player_id -> projection stats including:
@@ -58,6 +135,9 @@ class ProjectionsEndpoint:
             - pts_half_ppr: Half-PPR projected points
             - pts_ppr: Full PPR projected points
             - Individual stat projections (passing_yards, rushing_yards, etc.)
+            If `fields` is given, each player's dict contains only the keys
+            present in `fields` (a field the API didn't return for that
+            player is simply absent, not filled in with a default).
 
         Note:
             This endpoint returns PROJECTIONS (pre-game predictions), not actuals.
@@ -74,6 +154,42 @@ class ProjectionsEndpoint:
             Use get_player_projection() to fetch a single player.
             Returns empty dict on failure for graceful degradation.
 
+        Caching and `fields` (#15 / #16):
+            The cache always stores -- and this method always fetches -- the
+            complete, unfiltered payload for a (season, week); `fields` only
+            trims what's handed back to *this* call. Two designs were
+            considered for #16 (filter at cache-write time, keyed by field
+            set, vs. always cache the full payload and filter on read) and
+            the second was chosen, for two reasons that both trace back to
+            #15 landing first:
+
+            1. #15 already made caching the *raw response bytes* (not the
+               parsed dict) the cheap path for a cache write -- see
+               PersistentCache.set_bytes(). A field-filtered payload can't
+               reuse that: filtering requires a parsed dict, so a
+               filter-then-cache design would have reintroduced the
+               parse/filter/re-serialize cost #15 exists to remove, and paid
+               it on every distinct field-set a caller ever asks for.
+            2. Filtering at write time also means the cache key must fold in
+               the field set (or a narrow fetch poisons the cache for a
+               later full request, and vice versa) -- one more axis of cache
+               keying to get right, for a win that's about caller memory,
+               not disk or network.
+
+            Filtering on read costs nothing when `fields` is None (the
+            filter is a no-op passthrough -- see `_filter_projection_fields`),
+            keeps exactly one cache entry per (season, week) no matter how
+            many different `fields` values callers ask for, and makes "a
+            filtered payload leaking to a caller that asked for the full
+            one" structurally impossible, since the cache never holds
+            anything but the full payload. The trade-off: this does not
+            shrink the cache *directory* the way write-time filtering would
+            (disk usage stays the ~581KB/week of the full payload,
+            regardless of `fields`) -- only a caller's own copy of the
+            result gets smaller. That's the win #16 asked for: the
+            downstream memory pressure (10 weeks x ~9,400 players held per
+            gunicorn worker) was about parsed-object memory, not disk.
+
         Example:
             >>> # Get projections (pre-game)
             >>> projections = endpoint.get_projections(2024, 1)
@@ -85,25 +201,49 @@ class ProjectionsEndpoint:
             >>> matchups = league_endpoint.get_matchups(league_id, 1)
             >>> for matchup in matchups:
             >>>     print(f"Actual points: {matchup.points}")
+            >>>
+            >>> # Only need PPR points? Trim what's returned (cache is
+            >>> # unaffected -- still stores the full payload).
+            >>> ppr_only = endpoint.get_projections(2024, 1, fields=("pts_ppr",))
         """
+        # Materialize once, immediately -- see _materialize_fields(). A
+        # generator passed here and used only within this one call would
+        # already be safe, but doing it unconditionally at every public
+        # entry point means the guarantee doesn't depend on which method a
+        # caller happened to go through.
+        fields = _materialize_fields(fields)
+
         cache_key = f"projections:{season}:{week}"
 
-        # Check persistent file cache
+        # Check persistent file cache. Always the full payload -- see the
+        # "Caching and `fields`" note above -- so filtering happens on every
+        # path, cache hit or miss, in one place below.
         cached = self.persistent_cache.get(cache_key)
         if cached is not None:
             logger.debug(f"Loaded projections from cache for {season} week {week}")
-            return cached
+            return _filter_projection_fields(cached, fields)
 
-        # Fetch from API
+        # Fetch from API. Uses get_raw() rather than get() so the response
+        # bytes the client already read can go straight to the cache via
+        # set_bytes() -- no decode-then-re-encode round trip. See #15.
         try:
             endpoint = f"projections/nfl/regular/{season}/{week}"
-            data = self.client.get(endpoint)
+            raw = self.client.get_raw(endpoint)
+
+            if not raw:
+                logger.warning(f"No projection data returned for {season} week {week}")
+                return {}
+
+            try:
+                data = json.loads(raw)
+            except ValueError as exc:
+                raise SleeperAPIError("Invalid JSON response received") from exc
 
             if data:
-                # Cache for 24 hours
-                self.persistent_cache.set(cache_key, data, ttl_hours=24.0)
+                # Cache the raw bytes verbatim for 24 hours -- see #15.
+                self.persistent_cache.set_bytes(cache_key, raw, ttl_hours=24.0)
                 logger.info(f"Fetched projections for {season} week {week}")
-                return data
+                return _filter_projection_fields(data, fields)
             else:
                 logger.warning(f"No projection data returned for {season} week {week}")
                 return {}
@@ -116,7 +256,8 @@ class ProjectionsEndpoint:
         self,
         player_id: str,
         season: int,
-        week: int
+        week: int,
+        fields: Optional[Iterable[str]] = None,
     ) -> Optional[Dict]:
         """
         Fetch projection data for a single player.
@@ -128,6 +269,8 @@ class ProjectionsEndpoint:
             player_id: Sleeper player ID.
             season: NFL season year (e.g., 2024).
             week: Week number (1-18).
+            fields: Optional iterable of projection field names to keep in
+                the player's returned dict. See get_projections(). (#16)
 
         Returns:
             Dict with projection stats for the player, or None if not found.
@@ -144,22 +287,25 @@ class ProjectionsEndpoint:
             >>>     print(f"PPR Points: {proj.get('pts_ppr')}")
             >>>     print(f"Receptions: {proj.get('rec')}")
         """
-        projections = self.get_projections(season, week)
+        projections = self.get_projections(season, week, fields=fields)
         return projections.get(player_id)
 
-    def _fetch_week(self, season: int, week: int) -> Dict[str, Dict]:
+    def _fetch_week(
+        self, season: int, week: int, fields: Optional[Iterable[str]] = None
+    ) -> Dict[str, Dict]:
         """
         Fetch one week's projections, degrading to an empty dict on any failure.
 
         Args:
             season: NFL season year.
             week: Week number.
+            fields: Optional field filter, forwarded to get_projections(). (#16)
 
         Returns:
             Projections dict for the week, or {} if the fetch failed.
         """
         try:
-            projections = self.get_projections(season, week)
+            projections = self.get_projections(season, week, fields=fields)
             if projections:
                 logger.debug(f"Fetched {len(projections)} players for week {week}")
             else:
@@ -174,6 +320,7 @@ class ProjectionsEndpoint:
         season: int,
         weeks: Optional[List[int]] = None,
         max_workers: int = 1,
+        fields: Optional[Iterable[str]] = None,
     ) -> Dict[int, Dict[str, Dict]]:
         """
         Fetch player projections for multiple weeks in a season.
@@ -188,6 +335,11 @@ class ProjectionsEndpoint:
                 (sequential). Pass a higher value to fan out over a thread pool.
                 Capped at 8; values below 1 are treated as 1. See the
                 performance note below before reaching for it.
+            fields: Optional iterable of projection field names to keep in
+                each week's returned data. Forwarded to get_projections() for
+                every week; the cache still always holds the full payload
+                for each week regardless of this argument -- see
+                get_projections()'s "Caching and `fields`" note. (#16)
 
         Returns:
             Dict mapping week number -> projections dict, in the order the weeks
@@ -231,18 +383,30 @@ class ProjectionsEndpoint:
             ...     2024, weeks=list(range(10, 19)), max_workers=8
             ... )
         """
+        # Materialize once, before `fields` is forwarded to more than one
+        # week's fetch. This is THE critical spot for this guarantee: the
+        # exact same `fields` object is about to be handed to a separate
+        # get_projections() call per week (sequentially, or racing across
+        # threads below), and get_projections()'s own materialization can't
+        # help here -- by the time each call touches a shared generator, the
+        # object itself is already partially or fully consumed by whichever
+        # call reached it first. See _materialize_fields() and PR #32 review.
+        fields = _materialize_fields(fields)
+
         if weeks is None:
             weeks = list(range(1, NFL_REGULAR_SEASON_WEEKS + 1))
 
         workers = min(max(max_workers, 1), MAX_CONCURRENT_WEEK_FETCHES, len(weeks) or 1)
 
         if workers == 1:
-            return {week: self._fetch_week(season, week) for week in weeks}
+            return {week: self._fetch_week(season, week, fields=fields) for week in weeks}
 
         # ThreadPoolExecutor.map preserves input order, so the resulting dict is
         # keyed the same way the sequential path keys it.
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            results = executor.map(lambda week: self._fetch_week(season, week), weeks)
+            results = executor.map(
+                lambda week: self._fetch_week(season, week, fields=fields), weeks
+            )
             return dict(zip(weeks, results))
 
     def get_player_season_projections(
@@ -251,6 +415,7 @@ class ProjectionsEndpoint:
         season: int,
         weeks: Optional[List[int]] = None,
         max_workers: int = 1,
+        fields: Optional[Iterable[str]] = None,
     ) -> Dict[int, Optional[Dict]]:
         """
         Fetch projections for a single player across multiple weeks.
@@ -263,6 +428,9 @@ class ProjectionsEndpoint:
             season: NFL season year (e.g., 2024).
             weeks: List of week numbers to fetch. If None, fetches all 18 weeks.
             max_workers: Weeks to fetch concurrently. See get_season_projections().
+            fields: Optional iterable of projection field names to keep in
+                the player's returned dict for each week. See
+                get_projections(). (#16)
 
         Returns:
             Dict mapping week number -> player projection data (or None if not found).
@@ -275,7 +443,16 @@ class ProjectionsEndpoint:
             >>>     if proj:
             >>>         print(f"Week {week}: {proj.get('pts_ppr')} PPR points")
         """
-        season_data = self.get_season_projections(season, weeks, max_workers=max_workers)
+        # Materialize here too, even though get_season_projections() would
+        # materialize it anyway -- this call is itself a boundary a caller
+        # can hand a one-shot iterable to, and this guarantee shouldn't
+        # depend on tracing into what get_season_projections() happens to do
+        # internally. Idempotent and cheap either way: re-wrapping an
+        # already-materialized frozenset just makes another frozenset.
+        fields = _materialize_fields(fields)
+        season_data = self.get_season_projections(
+            season, weeks, max_workers=max_workers, fields=fields
+        )
 
         player_data = {}
         for week, projections in season_data.items():

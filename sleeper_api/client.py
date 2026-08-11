@@ -7,10 +7,11 @@ headers and timeouts.
 
 """
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -19,6 +20,10 @@ from .config import BASE_URL, CONVERT_RESULTS
 from .exceptions import RateLimitError, SleeperAPIError
 
 logger = logging.getLogger(__name__)
+
+# Default upper bound for close(drain=...) when a caller opts into waiting.
+# Bounded so a hung request cannot make close() block forever.
+CLOSE_DRAIN_TIMEOUT_SECONDS = 30.0
 
 # Status codes worth retrying: 429 is Sleeper rate limiting, the 5xx set is
 # transient server/gateway failure. Anything else is a real answer and is
@@ -140,17 +145,100 @@ class SleeperClient:
         # made one more call.
         self._closed = False
 
-    def close(self) -> None:
+        # Guards `_closed` and `_inflight` together. Checking `_closed`
+        # and registering the request has to be one atomic step: with a
+        # bare flag read, close() could complete in the gap between the
+        # check and session.request(), and requests would then open a
+        # fresh socket on the closed adapter -- the very thing the flag
+        # exists to prevent. The lock is released before the HTTP call so
+        # concurrent requests still overlap; only the bookkeeping is
+        # serialized.
+        self._lifecycle = threading.Condition()
+        self._inflight = 0
+        self._released = False
+        self._release_pending = False
+
+    def close(self, drain: float = 0.0) -> None:
         """
         Release the underlying HTTP session and its connection pool.
 
-        Idempotent -- calling this more than once (or on a client that was
-        never used) is a no-op after the first call.
+        Returns immediately by default. Marking the client closed already
+        stops any *new* request from starting (see :meth:`_request`), so the
+        common case needs no waiting.
+
+        :param drain: Seconds to wait for requests already on the wire to
+            finish before releasing the session. Defaults to 0 -- **do not
+            raise it on a thread you cannot afford to block**. In particular
+            the documented `with SleeperClient()` + ``asyncio.to_thread``
+            pattern unwinds the context manager on the event loop itself, so
+            a blocking drain there would stall every other task on that loop
+            for the duration -- defeating the point of moving the call to a
+            worker thread. Capped at CLOSE_DRAIN_TIMEOUT_SECONDS.
+
+        Idempotent. A caller that passes ``drain`` while another thread is
+        already closing waits for that close to actually release the session,
+        rather than returning early on a flag that only means "closing".
         """
-        if self._closed:
-            return
+        wait_budget = min(max(drain, 0.0), CLOSE_DRAIN_TIMEOUT_SECONDS)
+
+        with self._lifecycle:
+            if self._closed:
+                # Someone else is closing, or already has. `_closed` alone
+                # only means "no new requests"; the session may still be in
+                # the process of being released, so a caller that asked to
+                # wait must wait for `_released`, not for the flag it already
+                # sees set.
+                if wait_budget:
+                    self._wait_until(lambda: self._released, wait_budget)
+                return
+
+            self._closed = True
+            if wait_budget:
+                self._wait_until(lambda: self._inflight == 0, wait_budget)
+
+            if self._inflight:
+                # Requests are still registered. Releasing the session now
+                # would let a thread that registered but has not yet reached
+                # session.request() resume against closed adapters, which
+                # simply builds a fresh pool -- a new socket opened after
+                # close() returned. Hand the release to whichever request
+                # leaves last, so the caller is never blocked and the session
+                # still outlives every attempt that claimed it.
+                self._release_pending = True
+                logger.debug(
+                    f"close() deferring session release to the last of "
+                    f"{self._inflight} in-flight request(s)"
+                )
+                return
+
+        self._release()
+
+    def _release(self):
+        """
+        Close the session and wake anything waiting on `_released`.
+
+        Called outside `_lifecycle` -- either by close() when nothing is in
+        flight, or by the last request to deregister after a deferred close.
+        """
         self.session.close()
-        self._closed = True
+        with self._lifecycle:
+            self._release_pending = False
+            self._released = True
+            self._lifecycle.notify_all()
+
+    def _wait_until(self, predicate, budget):
+        """
+        Wait for `predicate` under `_lifecycle`, up to `budget` seconds.
+
+        :return: True if the predicate held before the budget ran out.
+        """
+        deadline = time.monotonic() + budget
+        while not predicate():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._lifecycle.wait(remaining)
+        return True
 
     def __enter__(self) -> "SleeperClient":
         return self
@@ -184,12 +272,19 @@ class SleeperClient:
         session.mount("http://", adapter)
         return session
 
-    def _handle_response(self, response):
+    def _handle_response(self, response, raw: bool = False):
         """
         Handle the API response.
 
         :param response: The HTTP response object.
-        :return: The parsed JSON data or raise an error.
+        :param raw: If True, return the raw response body (``bytes``)
+            instead of parsing it as JSON. Used by :meth:`get_raw` so a
+            caller that wants to persist the response (e.g. a cache) can
+            write exactly what the server sent, without this client decoding
+            it to a dict that the caller would otherwise have to re-encode
+            back to bytes. See issue #15.
+        :return: The parsed JSON data (or raw bytes, if ``raw``) or raise an
+            error.
         """
         if response.status_code == 404:
             return None  # Not an error, just missing resource
@@ -199,20 +294,21 @@ class SleeperClient:
                 f"Error {response.status_code}: {response.text}",
                 status_code=response.status_code
             )
+        if raw:
+            return response.content
         try:
             return response.json()
         except ValueError as exc:
             raise SleeperAPIError("Invalid JSON response received") from exc
 
-    def _request(self, method, endpoint, params=None, data=None):
+    def _check_not_closed(self):
         """
-        Make a request to the Sleeper API with retry logic.
+        Raise if the client has been closed.
 
-        :param method: HTTP method (GET, POST, etc.).
-        :param endpoint: API endpoint (e.g., 'user/{user_id}').
-        :param params: URL parameters.
-        :param data: Request payload for POST/PUT requests.
-        :return: Parsed JSON response.
+        Shared by the entry check and the top of every retry iteration in
+        :meth:`_request` (see there for why both matter), so the two can
+        never diverge in behavior or message.
+
         :raises RuntimeError: If the client has been closed. requests.Session
             does not enforce this itself -- a closed adapter just opens a new
             socket on the next call, silently undoing close() -- so this
@@ -226,10 +322,40 @@ class SleeperClient:
                 "reusing one after close() or exiting its `with` block."
             )
 
+    def _request(self, method, endpoint, params=None, data=None, raw=False):
+        """
+        Make a request to the Sleeper API with retry logic.
+
+        :param method: HTTP method (GET, POST, etc.).
+        :param endpoint: API endpoint (e.g., 'user/{user_id}').
+        :param params: URL parameters.
+        :param data: Request payload for POST/PUT requests.
+        :param raw: If True, return the raw response body (bytes) instead of
+            parsed JSON. See :meth:`get_raw`.
+        :return: Parsed JSON response (or raw bytes, if ``raw``).
+        :raises RuntimeError: If the client is closed. Checked on entry *and*
+            again at the top of every retry iteration -- not just once --
+            because `close()` can land from another thread (or an
+            `asyncio.to_thread` caller that got cancelled and unwound a
+            `with SleeperClient()` block) while this call is asleep in
+            `time.sleep(backoff)` between attempts. Without the recheck, a
+            request that had already passed the entry check could wake up
+            and open a fresh connection after the session was supposed to be
+            gone -- the exact thing the guard exists to prevent. Aborting
+            mid-retry raises the same `RuntimeError` as the entry check
+            (rather than a distinct error type), since both represent the
+            same fact from the caller's point of view: this client is closed,
+            stop using it. See issue #30.
+        """
         url = f'{self.base_url}{endpoint}'
         backoff = self.initial_backoff
 
         for attempt in range(self.max_retries + 1):
+            # Atomically confirm the client is open and register this
+            # attempt, so close() cannot slip in between the two.
+            with self._lifecycle:
+                self._check_not_closed()
+                self._inflight += 1
             try:
                 response = self.session.request(
                     method=method,
@@ -245,6 +371,18 @@ class SleeperClient:
                     backoff *= 2
                     continue
                 raise SleeperAPIError(f"Request failed after {self.max_retries} retries: {exc}") from exc
+            finally:
+                # Deregister as soon as the HTTP call returns, so a client
+                # waiting in close() is not held up by this attempt's backoff
+                # sleep -- only by work actually on the wire.
+                with self._lifecycle:
+                    self._inflight -= 1
+                    self._lifecycle.notify_all()
+                    # A close() that arrived while this attempt was registered
+                    # left the session for the last one out to release.
+                    release_now = self._release_pending and self._inflight == 0
+                if release_now:
+                    self._release()
 
             # Retry rate limits and transient server errors. 5xx used to be
             # retried by the adapter's urllib3 Retry; it is handled here now so
@@ -289,7 +427,7 @@ class SleeperClient:
             if response.status_code == 429:
                 raise RateLimitError("Rate limit exceeded after all retries")
 
-            return self._handle_response(response)
+            return self._handle_response(response, raw=raw)
 
     def get(self, endpoint, params=None) -> Any:
         """
@@ -300,6 +438,28 @@ class SleeperClient:
         :return: Parsed JSON response.
         """
         return self._request('GET', endpoint, params=params)
+
+    def get_raw(self, endpoint, params=None) -> Optional[bytes]:
+        """
+        Make a GET request, returning the raw response body instead of
+        parsed JSON.
+
+        Exists so a caller that wants to persist the response verbatim (e.g.
+        :class:`~sleeper_api.persistent_cache.PersistentCache`, via
+        :meth:`~sleeper_api.persistent_cache.PersistentCache.set_bytes`) can
+        write exactly what the server sent, instead of this client decoding
+        the body to a dict that the caller then has to re-encode back into
+        bytes to store -- a decode-then-re-encode round trip that turned out
+        to be the dominant cost of a cache write (see issue #15). Goes
+        through the same retry/rate-limit handling as :meth:`get`; ``get()``
+        keeps its existing signature and return type unchanged.
+
+        :param endpoint: API endpoint (e.g., 'projections/nfl/regular/2025/1').
+        :param params: URL parameters.
+        :return: Raw response body as ``bytes``, or ``None`` for a 404
+            (matching ``get()``'s contract for a missing resource).
+        """
+        return self._request('GET', endpoint, params=params, raw=True)
 
     def get_base_url(self) -> str:
         "Returns the base url"

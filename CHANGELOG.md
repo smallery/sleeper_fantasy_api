@@ -300,6 +300,107 @@ all three change the client/endpoint contract.
   sketch in `config.py` isn't the shape this took. Removed the "Planned
   Features" bullet for this (#24 supersedes it) and added the `py.typed` /
   per-client `convert_results` bullets to Features.
+### Added
+- **`SleeperClient.get_raw(endpoint, params=None)`**, alongside `get()`,
+  returning the raw response body as `bytes` instead of parsed JSON. Exists
+  so a caller that wants to persist a response (namely
+  `ProjectionsEndpoint`, via the new `PersistentCache.set_bytes()`) can
+  write exactly what the server sent, instead of this client decoding it to
+  a dict the caller then has to re-encode back into bytes. `get()`'s
+  existing signature and return type are unchanged. See #15.
+- **`PersistentCache.set_bytes(key, raw, ttl_hours=None)`**, alongside
+  `set()`, for storing pre-serialized JSON bytes verbatim -- skips
+  `json.dumps()` entirely. Publishes through the same lock-spanning
+  data+metadata write path as `set()` (factored into a shared `_publish()`
+  helper); none of the #26-review locking/atomicity guarantees changed,
+  only what gets written to the data file. `raw` is not validated as JSON
+  (that would mean parsing it, defeating the point) -- an invalid payload
+  surfaces later as an ordinary `get()` decode failure, the same as any
+  other corrupted cache file. See #15.
+- **`ProjectionsEndpoint.get_projections()` (and
+  `get_player_projection()`/`get_season_projections()`/
+  `get_player_season_projections()`) accept an optional `fields` argument**
+  to trim each player's projection dict to just the given field names, e.g.
+  `get_projections(2025, 1, fields=("pts_ppr",))`. Opt-in: omitting it
+  returns every field, unchanged from prior versions. `fields` is typed
+  `Optional[Iterable[str]]`, so any iterable is accepted, including a
+  one-shot generator or iterator -- it is materialized into a `frozenset`
+  exactly once, at every public method that accepts it
+  (`_materialize_fields()`), before it can be forwarded to more than one
+  week's fetch. Caught in PR #32 review (credit to `@codex`'s pass on the
+  PR): without this, `get_season_projections()` forwarding the *same*
+  `fields` object to a separate `get_projections()` call per week would let
+  the first week's filter silently exhaust a generator, leaving every later
+  week filtered against an empty set -- no exception, no warning -- and
+  under `max_workers > 1` which week "won" the generator's contents would
+  be a race, reproducing nondeterministically. See #16.
+
+### Changed
+- **`ProjectionsEndpoint.get_projections()` now caches the raw API response
+  bytes instead of the re-serialized parsed dict.** Previously every cache
+  write on a miss ran `response.json()` (bytes -> dict) and then
+  `json.dumps()` (dict -> string -> disk) inside `PersistentCache.set()`,
+  reconstructing bytes the client already had and had thrown away. Measured
+  on a real ~0.55 MB week-1 2025 payload on this machine: `set()`
+  (`json.dumps` the parsed dict) took a median 6.64ms/write versus
+  `set_bytes()` (write the original response bytes) at 0.92ms/write -- a
+  7.2x reduction in cache-write cost (the issue's own profiling, on a
+  different machine, measured 18.4x for the same shape of fix). End to end,
+  a cold-cache sequential 10-week fetch against the live API went from
+  0.702s to 0.546s (1.28x) -- the network dominates the sequential case, so
+  the write-cost win shows up more in `get_season_projections(...,
+  max_workers=...)`'s concurrent fan-out, where the cache write is the
+  GIL-bound serial component the fan-out couldn't parallelize away. `get()`
+  itself is unchanged; the parsed-dict return value from `get_projections()`
+  is unchanged; only how the response reaches disk changed. **Cache format
+  is compatible either direction**: `PersistentCache.get()` now always reads
+  data files in binary mode (`json.load()` accepts a binary file object and
+  sniffs UTF-8/16/32 per RFC 8259), so it reads both a `set()`-written entry
+  (pure ASCII, per `json.dumps()`'s `ensure_ascii` default) and a
+  `set_bytes()`-written entry (verbatim API bytes, which may contain
+  non-ASCII UTF-8 -- e.g. an accented player name) correctly; existing cache
+  directories need no migration. See #15.
+- **The #15/#16 strategy decision.** #16 proposed two designs for an
+  optional projection field filter: filter at cache-write time (shrinks the
+  cache, but the cache key must fold in the field set or a narrow fetch
+  poisons the cache for a later full request) or always cache the full
+  payload and filter on read (no cache-key complexity, saves caller memory
+  only). This release takes the second option, and #15 is why: #15 already
+  made caching the *raw* response bytes -- not a parsed dict -- the cheap
+  path for a cache write, and filtering requires a parsed dict, so
+  filter-then-cache would have reintroduced the parse/re-serialize cost #15
+  removes, once per distinct field set any caller ever asks for. Caching
+  the full payload and filtering in `_filter_projection_fields()` on the
+  way out costs nothing when `fields` is omitted (a no-op passthrough),
+  keeps exactly one cache entry per (season, week) regardless of how many
+  different `fields` values are requested, and makes "a filtered payload
+  served to a caller that asked for the full one" structurally impossible.
+  The trade-off, stated explicitly: this does **not** shrink the cache
+  directory the way write-time filtering would -- disk usage stays the full
+  ~522KB/week (measured live, 2025 week 1) regardless of `fields`; only a
+  caller's own copy of the result gets smaller (measured live: 522.5 KB
+  full vs 156.0 KB for `pts_ppr`/`pts_half_ppr`/`pts_std` only, 3.3x). That
+  was the actual ask in #16 -- the downstream memory pressure the issue
+  cited (10 weeks x ~9,400 players held per gunicorn worker) was
+  parsed-object memory, not disk. See `ProjectionsEndpoint.get_projections()`'s
+  "Caching and `fields`" docstring section for the full reasoning.
+
+### Fixed
+- **`SleeperClient._request()` now rechecks `_closed` on every retry
+  iteration, not just once on entry.** `close()` set `_closed`, and the old
+  entry-only check meant a request already past that check -- asleep in
+  `time.sleep(backoff)` between retries -- could wake up and open a fresh
+  connection after `close()` landed from another thread (reachable e.g. via
+  a cancelled `asyncio.to_thread` caller unwinding a `with SleeperClient()`
+  block, or any cross-thread `close()`). The entry check and the
+  per-iteration recheck now share one implementation (`_check_not_closed()`),
+  so they can't diverge, and both raise the same `RuntimeError` -- aborting
+  mid-retry is treated as the same fact as failing on entry ("this client is
+  closed"), not a distinct error condition. Covered by a deterministic test
+  that forces a retryable response and calls `close()` from another thread
+  during the backoff window (coordinated via `threading.Event`s around the
+  patched `time.sleep`, not real timing), asserting no further request goes
+  out after `close()` lands. See #30.
 
 ## [0.4.0] - 2026-08-10
 
