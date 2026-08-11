@@ -1,5 +1,5 @@
 """NFL state model for current season/week information."""
-from typing import Dict, Any
+from typing import Any, Dict
 
 
 class NFLStateModel:

@@ -7,8 +7,9 @@ Note: This uses an undocumented Sleeper endpoint that may change.
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
-from ..persistent_cache import PersistentCache
+
 from ..exceptions import SleeperAPIError
+from ..persistent_cache import PersistentCache
 
 logger = logging.getLogger(__name__)
 

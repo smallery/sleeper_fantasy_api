@@ -1,9 +1,13 @@
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 
 class PlayerModel:
     def __init__(
         self,
-        player_id: str,
+        # Optional despite being the identifier: from_dict() builds this from
+        # attributes.get('player_id'), which mypy correctly types as
+        # Optional -- the Sleeper payload has no schema guarantee.
+        player_id: Optional[str] = None,
         first_name: Optional[str] = None,
         last_name: Optional[str] = None,
         position: Optional[str] = None,
@@ -14,7 +18,9 @@ class PlayerModel:
         age: Optional[int] = None,
         college: Optional[str] = None,
         years_exp: Optional[int] = None,
-        _player_data: Optional[Dict] = None
+        _player_data: Optional[Dict] = None,
+        add_count: Optional[int] = None,
+        drop_count: Optional[int] = None,
     ):
         self.player_id = player_id
         self.first_name = first_name
@@ -30,6 +36,11 @@ class PlayerModel:
         self.college = college
         self.years_exp = years_exp
         self._player_data = _player_data
+        # Not part of the Sleeper player payload -- PlayerEndpoint.get_trending_players()
+        # bolts these on after construction. Declared here (rather than left as a
+        # dynamic attribute) so PlayerModel's own type is accurate.
+        self.add_count = add_count
+        self.drop_count = drop_count
 
     @classmethod
     def from_dict(cls, attributes: dict):
@@ -57,20 +68,28 @@ class PlayerModel:
         )
 
     def __repr__(self):
-        return f"<PlayerModel(name={self.name}, player_id={self.player_id}, age={self.age}, team={self.team_abbr}, position={self.position})>"
-    
+        return (
+            f"<PlayerModel(name={self.name}, player_id={self.player_id}, age={self.age}, "
+            f"team={self.team_abbr}, position={self.position})>"
+        )
+
     def get_attribute(self, attr_name: str) -> Optional[Any]:
         """
         Get an attribute value from the player_dict on demand.
-        
+
         :param attr_name: The name of the attribute to retrieve.
         :return: The value of the attribute or None if it doesn't exist.
         """
 
-        return self._player_data.get(attr_name)
-    
+        # _player_data is Optional and unset when PlayerModel is constructed directly
+        # (rather than via from_dict()); calling .get() on None would raise here.
+        # That's a pre-existing latent bug, not something issue #20's CI-gate work
+        # should fix behind the scenes -- flagging via type: ignore rather than
+        # silently changing what this returns for that edge case.
+        return self._player_data.get(attr_name)  # type: ignore[union-attr]
+
     def get_injury_status(self):
         # returns info about injury
         pass
 
-    
+

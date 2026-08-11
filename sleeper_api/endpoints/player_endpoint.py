@@ -1,16 +1,35 @@
 """
-This module provides the `PlayerEndpoint` class for interacting 
+This module provides the `PlayerEndpoint` class for interacting
 with player-related API endpoints of the Sleeper API.
 """
 import gzip
 import json
-from pathlib import Path
 from datetime import datetime
-from typing import List, Dict, Optional, Any
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union, cast
+
 from platformdirs import user_cache_dir
-from ..models.player import PlayerModel
-from ..exceptions import SleeperAPIError
+
 from ..config import CACHE_DURATION, CONVERT_RESULTS
+from ..exceptions import SleeperAPIError
+from ..models.player import PlayerModel
+
+# Comparison operators supported by PlayerEndpoint.search_players()'s filter
+# syntax (e.g. {"age": {">": 25}}). Pulled out to a dispatch table instead of
+# an if/elif chain so the mccabe complexity of safe_search_type stays under
+# the project's max-complexity=15 gate without changing which operators are
+# supported or how they behave.
+_SEARCH_OPERATORS = {
+    "==": lambda record_value, val: record_value == val,
+    "!=": lambda record_value, val: record_value != val,
+    ">": lambda record_value, val: record_value > val,
+    "<": lambda record_value, val: record_value < val,
+    ">=": lambda record_value, val: record_value >= val,
+    "<=": lambda record_value, val: record_value <= val,
+    "in": lambda record_value, val: record_value in val,
+    "not in": lambda record_value, val: record_value not in val,
+}
+
 
 class PlayerEndpoint:
     """
@@ -38,14 +57,14 @@ class PlayerEndpoint:
         cache_mtime = datetime.fromtimestamp(self.cache_file.stat().st_mtime)
         return datetime.now() - cache_mtime < self.cache_duration
 
-    def _load_cache(self) -> List[Dict]:
+    def _load_cache(self) -> Dict[str, Dict]:
         """
         Load player data from the cache file.
         """
         with gzip.open(self.cache_file, 'rt') as f:
             return json.load(f)
 
-    def _save_cache(self, players_json: List[Dict]):
+    def _save_cache(self, players_json: Dict[str, Dict]):
         """
         Save player data to the cache file.
         """
@@ -57,7 +76,7 @@ class PlayerEndpoint:
 
     def get_all_players(
             self, sport = 'nfl', convert_results = CONVERT_RESULTS
-            ) -> List[PlayerModel]:
+            ) -> Union[Dict[str, Dict], List[PlayerModel]]:
         """
         Retrieve all players, either from the cache or by making an API call.
         """
@@ -79,7 +98,7 @@ class PlayerEndpoint:
     def get_trending_players(
             self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
             limit: Optional[int] = 25, convert_results=CONVERT_RESULTS
-            ) -> List[Dict[str, int]]:
+            ) -> Union[List[Dict[str, Any]], List[PlayerModel]]:
         """
         Retrieve trending players based on adds or drops.
 
@@ -99,7 +118,14 @@ class PlayerEndpoint:
             return trending_data
 
         # If convert_results is True, map the trending data to PlayerModel instances
-        all_players = self.get_all_players(convert_results)
+        # NOTE: this passes convert_results positionally, which actually lands in
+        # get_all_players' `sport` parameter, not its own convert_results -- a
+        # pre-existing bug left untouched here since fixing it would change
+        # get_all_players' effective sport argument (a behavior change out of
+        # scope for the CI-gate work in issue #20). get_all_players' own
+        # convert_results still defaults to True, so this reliably returns
+        # List[PlayerModel] in practice, which is what the cast below asserts.
+        all_players = cast(List[PlayerModel], self.get_all_players(convert_results))
         player_dict = {player.player_id: player for player in all_players}
 
         result = []
@@ -128,9 +154,9 @@ class PlayerEndpoint:
     def search_players(self, search_keys: Dict[str, Any], convert_results=CONVERT_RESULTS):
         """
         Search for players based on complex criteria using a combination of AND/OR logic and comparison operators.
-        
+
         This function retrieves all player data and filters it according to the search keys provided.
-        The search keys can include various logical conditions (AND/OR) and comparison operators 
+        The search keys can include various logical conditions (AND/OR) and comparison operators
         (e.g., '==', '!=', '>', '<', '>=', '<=', 'in', 'not in') for different attributes of the player data.
         """
         def safe_search_type(record, key, value):
@@ -139,37 +165,17 @@ class PlayerEndpoint:
             if record_value is None:
                 return False  # Skip records where the value is None
 
-            if isinstance(value, dict):
-                for operator, val in value.items():
-                    if operator == "==":
-                        if record_value != val:
-                            return False
-                    elif operator == "!=":
-                        if record_value == val:
-                            return False
-                    elif operator == ">":
-                        if not (record_value > val):
-                            return False
-                    elif operator == "<":
-                        if not (record_value < val):
-                            return False
-                    elif operator == ">=":
-                        if not (record_value >= val):
-                            return False
-                    elif operator == "<=":
-                        if not (record_value <= val):
-                            return False
-                    elif operator == "in":
-                        if record_value not in val:
-                            return False
-                    elif operator == "not in":
-                        if record_value in val:
-                            return False
-                    else:
-                        raise ValueError(f"Unsupported operator: {operator}")
-                return True
-            else:
+            if not isinstance(value, dict):
                 return record_value == value
+
+            for operator, val in value.items():
+                try:
+                    comparator = _SEARCH_OPERATORS[operator]
+                except KeyError:
+                    raise ValueError(f"Unsupported operator: {operator}") from None
+                if not comparator(record_value, val):
+                    return False
+            return True
 
         # Recursive function to handle AND/OR logic
         def evaluate_conditions(record, conditions):
@@ -183,8 +189,9 @@ class PlayerEndpoint:
             else:
                 raise ValueError(f"Unsupported conditions format: {conditions}")
 
-        # Load all player data
-        all_players_json = self.get_all_players(convert_results=False)
+        # Load all player data. convert_results=False guarantees the
+        # Dict[str, Dict] branch of get_all_players' Union return type.
+        all_players_json = cast(Dict[str, Dict], self.get_all_players(convert_results=False))
         player_data_list = []
 
         # removes the key from the all_players json so it's just a list of player json data
@@ -208,7 +215,9 @@ class PlayerEndpoint:
     def get_players_by_team(self,team_abbr) -> List[PlayerModel]:
         '''use the query to return a list of player models where the team_abbr matches the player team_abbr'''
         team_players = []
-        for player in self.get_all_players():
+        # No convert_results passed, so this uses the CONVERT_RESULTS default
+        # (True) -- always a List[PlayerModel] in practice.
+        for player in cast(List[PlayerModel], self.get_all_players()):
             if player.team_abbr == team_abbr:
                 team_players.append(player)
 

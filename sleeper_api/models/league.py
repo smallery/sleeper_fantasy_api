@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
+
 
 class LeagueModel:
     """
@@ -40,16 +41,25 @@ class LeagueModel:
     """
     def __init__(
         self,
-        league_id: str,
-        name: str,
-        status: str,
-        sport: str,
-        season: str,
-        season_type: str,
-        total_rosters: int,
-        roster_positions: List[str],
-        settings: Dict[str, int],
-        scoring_settings: Dict[str, float],
+        # These are functionally required (the runtime check just below raises
+        # TypeError if any are falsy), but from_json() supplies them via
+        # data.get(...), which mypy types as Optional since the Sleeper
+        # payload has no schema guarantee. Widened to match rather than
+        # fight the caller's actual (defensive) types.
+        league_id: Optional[str] = None,
+        name: Optional[str] = None,
+        status: Optional[str] = None,
+        sport: Optional[str] = None,
+        season: Optional[str] = None,
+        season_type: Optional[str] = None,
+        total_rosters: Optional[int] = None,
+        # Widened to Optional (from required) purely so these can follow the
+        # now-defaulted fields above without a syntax error; from_json()
+        # always supplies real values via .get(key, []/{})  so this doesn't
+        # change behavior for the only real caller.
+        roster_positions: Optional[List[str]] = None,
+        settings: Optional[Dict[str, int]] = None,
+        scoring_settings: Optional[Dict[str, float]] = None,
         metadata: Optional[Dict[str, str]] = None,
         avatar: Optional[str] = None,
         draft_id: Optional[str] = None,
@@ -64,7 +74,7 @@ class LeagueModel:
         last_transaction_id: Optional[str] = None,
         previous_league_id: Optional[str] = None,
     ):
-        
+
         # Raise a TypeError if any required fields are missing
         if not all([league_id, name, status, sport, season, season_type, total_rosters]):
             raise TypeError("Missing required fields in LeagueModel initialization")

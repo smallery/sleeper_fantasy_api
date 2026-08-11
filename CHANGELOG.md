@@ -23,6 +23,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accident. Purely additive; no existing usage is affected. See the README's
   "Client Lifecycle" section for the short-lived (`with`) vs. long-lived
   (hold one client, `close()` on shutdown) patterns.
+### Changed
+- **CI now actually gates on lint and type errors.** Previously, `flake8` ran
+  with `--exit-zero` on everything except syntax errors, so style, complexity,
+  and unused-import findings were printed and ignored. Replaced `flake8` with
+  `ruff` (configured in `pyproject.toml` under `[tool.ruff]`), which subsumes
+  flake8 and isort and fails the job on a real finding. Added a `mypy` job
+  (config under `[tool.mypy]`), started permissively
+  (`ignore_missing_imports`, no `--strict`) so it lands green ahead of the
+  `py.typed` marker landing. Added coverage reporting (`pytest --cov`) to the
+  test job -- reported, not gated, since a threshold shouldn't be picked
+  before the real number is known (75% as of this change).
+
+### Fixed
+- Various type annotations across `sleeper_api/` widened to `Optional` to
+  match what `dict.get(...)` on partially-known API payloads actually
+  returns, surfaced by turning `mypy` on. No behavior changes -- these were
+  static-typing corrections, not runtime fixes.
+- Removed a dead-code assignment in `UserModel.__init__` (two local variables
+  computed and never used).
+- Renamed the ambiguous `l` parameter in `BracketModel.__init__` to `loser`
+  (flagged by ruff's `E741`).
+- Reduced `PlayerEndpoint.search_players`'s cyclomatic complexity by
+  replacing its comparison-operator `if`/`elif` chain with a dispatch table,
+  bringing it under the project's `max-complexity=15` (previously unenforced
+  due to `flake8 --exit-zero`).
 
 ## [0.4.0] - 2026-08-10
 

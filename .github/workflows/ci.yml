@@ -33,7 +33,10 @@ jobs:
 
     - name: Run tests
       run: |
-        pytest -v
+        # Coverage is reported (see issue #20) but not gated on a threshold --
+        # picking a minimum before knowing the real number produces tests
+        # written to hit the number rather than to verify behavior.
+        pytest -v --cov=sleeper_api --cov-report=term-missing
 
   lint:
     name: Lint
@@ -51,9 +54,37 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8
+        pip install -e ".[dev]"
 
-    - name: Lint with flake8
+    - name: Lint with ruff
       run: |
-        flake8 sleeper_api --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 sleeper_api --count --exit-zero --max-complexity=15 --max-line-length=127 --statistics
+        # ruff subsumes flake8 (E/F/W) and isort (I) in one fast tool, and
+        # this consumer's downstream tooling already standardized on it (#20).
+        # No --exit-zero here: a finding fails the job.
+        ruff check sleeper_api
+
+  mypy:
+    name: Type check
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Type check with mypy
+      run: |
+        # Config lives in pyproject.toml under [tool.mypy]. Deliberately
+        # permissive for now (ignore_missing_imports, no --strict) per #20 --
+        # the goal is a green, useful gate before py.typed ships (#19), not a
+        # strict pass in one PR.
+        mypy sleeper_api

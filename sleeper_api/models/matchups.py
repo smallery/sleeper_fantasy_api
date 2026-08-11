@@ -1,4 +1,5 @@
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 
 class MatchupModel:
     """
@@ -37,7 +38,7 @@ class MatchupModel:
         points: float,
         custom_points: Optional[float] = None
     ):
-        
+
         # Validate types
         if not isinstance(starters, list) or not all(isinstance(s, str) for s in starters):
             raise TypeError(f"Invalid type for starters: expected List[str], got {type(starters).__name__}")

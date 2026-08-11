@@ -1,6 +1,7 @@
 from typing import List, Optional
-from datetime import datetime
+
 from .league import LeagueModel
+
 
 class UserModel:
     """
@@ -22,7 +23,16 @@ class UserModel:
         >>> print(f"User: {user.username} ({user.display_name})")
         >>> avatar_url = f"https://sleepercdn.com/avatars/{user.avatar}"
     """
-    def __init__(self, username: str, user_id: str, display_name: str, avatar: str):
+    def __init__(
+        self,
+        # Optional because from_json() supplies these via data.get(...),
+        # which mypy types as Optional -- the Sleeper payload has no schema
+        # guarantee.
+        username: Optional[str] = None,
+        user_id: Optional[str] = None,
+        display_name: Optional[str] = None,
+        avatar: Optional[str] = None,
+    ):
         """
         Initialize the UserModel with the provided user data.
 
@@ -36,10 +46,6 @@ class UserModel:
         self.display_name = display_name
         self.avatar = avatar
         self.nfl_leagues: List[LeagueModel] = []
-
-        if self.avatar:
-            avatar_full_size_url = f'https://sleepercdn.com/avatars/{self.avatar}'
-            avatar_thumbnail_url = f'https://sleepercdn.com/avatars/thumbs/{self.avatar}'
 
     @classmethod
     def from_json(cls, data: dict):
@@ -58,4 +64,3 @@ class UserModel:
 
     def __repr__(self):
         return f"<UserModel(username={self.username}, user_id={self.user_id}, display_name={self.display_name})>"
-    

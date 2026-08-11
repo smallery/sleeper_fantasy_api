@@ -1,22 +1,25 @@
 """
-This module provides the `LeagueEndpoint` class for interacting 
+This module provides the `LeagueEndpoint` class for interacting
 with league-related API endpoints of the Sleeper API.
 
 The `LeagueEndpoint` class includes methods for retrieving league details,
 rosters, users, matchups, brackets, transactions, and traded picks.
 It supports optional conversion of results into model instances.
 """
-from typing import Dict, List
-from ..models.league import LeagueModel
-from ..models.roster import RosterModel
-from ..models.matchups import MatchupModel
-from ..models.brackets import BracketModel
-from ..models.transactions import TransactionsModel
-from ..models.traded_picks import TradedPickModel
-from ..models.nfl_state import NFLStateModel
-from .user_endpoint import UserEndpoint
+from typing import Any, Dict, List, Union, cast
+
 from ..config import CONVERT_RESULTS
 from ..exceptions import SleeperAPIError
+from ..models.brackets import BracketModel
+from ..models.league import LeagueModel
+from ..models.matchups import MatchupModel
+from ..models.nfl_state import NFLStateModel
+from ..models.roster import RosterModel
+from ..models.traded_picks import TradedPickModel
+from ..models.transactions import TransactionsModel
+from ..models.user import UserModel
+from .user_endpoint import UserEndpoint
+
 
 class LeagueEndpoint:
     """
@@ -28,36 +31,36 @@ class LeagueEndpoint:
         Retrieves a specific league by its ID.
 
     - `get_rosters(league_id: str, convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves rosters for a given league. 
+        Retrieves rosters for a given league.
         Optionally converts results into `RosterModel` instances.
 
     - `get_users(league_id: str, convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves users in a given league. 
+        Retrieves users in a given league.
         Optionally converts results into user model objects.
 
-    - `get_matchups(league_id: str, week: int, 
+    - `get_matchups(league_id: str, week: int,
                     convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves matchups for a given league and week. 
+        Retrieves matchups for a given league and week.
         Optionally converts results into `MatchupModel` instances.
 
-    - `get_winners_bracket(league_id: str, 
+    - `get_winners_bracket(league_id: str,
                             convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves the winner's bracket for a given league. 
+        Retrieves the winner's bracket for a given league.
         Optionally converts results into `BracketModel` instances.
 
-    - `get_losers_bracket(league_id: str, 
+    - `get_losers_bracket(league_id: str,
                           convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves the loser's bracket for a given league. 
+        Retrieves the loser's bracket for a given league.
         Optionally converts results into `BracketModel` instances.
 
-    - `get_transactions(league_id: str, week: int, 
+    - `get_transactions(league_id: str, week: int,
                         convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves transactions for a given league, filtered by week. 
+        Retrieves transactions for a given league, filtered by week.
         Optionally converts results into `TransactionsModel` instances.
 
-    - `get_traded_picks(league_id: str, 
+    - `get_traded_picks(league_id: str,
                         convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves traded picks for a given league. 
+        Retrieves traded picks for a given league.
 
     Attributes:
     -----------
@@ -80,7 +83,7 @@ class LeagueEndpoint:
             raise SleeperAPIError("League not found")
         return LeagueModel.from_json(league_data)
 
-    def get_rosters(self, league_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:
+    def get_rosters(self, league_id: str, convert_results = CONVERT_RESULTS) -> Union[List[Dict], List[RosterModel]]:
         """
         Retrieve the rosters for a given league.
         """
@@ -91,10 +94,10 @@ class LeagueEndpoint:
 
         return [RosterModel.from_dict(roster_data) for roster_data in rosters_json]
 
-    def get_users(self, league_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:
+    def get_users(self, league_id: str, convert_results = CONVERT_RESULTS) -> Union[List[Dict], List[UserModel]]:
         """
         Retrieve the users in a given league.
-        Returns a list of users. 
+        Returns a list of users.
             - If convert_results = False, this will be the raw JSON.
             - If convert_results = True, then this will be a list of user model objects
         """
@@ -106,7 +109,10 @@ class LeagueEndpoint:
 
         # note: the username will be missing from these user records, this can be retrieved
         user_endpoint = UserEndpoint(self.client)
-        return [user_endpoint.get_user(user.get("user_id")) for user in users_json]
+        # get_user()'s return type is Union[Dict, UserModel] because convert_results
+        # is caller-controlled, but no convert_results is passed here so it uses the
+        # CONVERT_RESULTS default (True) -- always a UserModel in practice.
+        return [cast(UserModel, user_endpoint.get_user(user.get("user_id"))) for user in users_json]
 
     def get_complete_league_data(self, league_id: str):
         """
@@ -135,11 +141,14 @@ class LeagueEndpoint:
         """
         # Fetch all data
         league = self.get_league_by_id(league_id)
-        rosters = self.get_rosters(league_id, convert_results=True)
-        users = self.get_users(league_id, convert_results=True)
+        # convert_results=True is passed explicitly, so these are always
+        # List[RosterModel]/List[UserModel] here even though the methods'
+        # return types are wider Unions to cover the convert_results=False case.
+        rosters = cast(List[RosterModel], self.get_rosters(league_id, convert_results=True))
+        users = cast(List[UserModel], self.get_users(league_id, convert_results=True))
 
         # Build convenience mapping
-        roster_to_user = {}
+        roster_to_user: Dict[Any, Any] = {}
         for roster in rosters:
             roster_to_user[roster.roster_id] = roster.owner_id
 
@@ -153,7 +162,7 @@ class LeagueEndpoint:
     def get_matchups(
             self, league_id: str, week: int,
             convert_results = CONVERT_RESULTS
-            ) -> List[Dict]:
+            ) -> Union[List[Dict], List[MatchupModel]]:
         """
         Retrieve the matchups for a given league and week.
         """
@@ -170,7 +179,7 @@ class LeagueEndpoint:
 
     def get_winners_bracket(
             self, league_id: str, convert_results = CONVERT_RESULTS
-            ) -> List[Dict]:
+            ) -> Union[List[Dict], List[BracketModel]]:
         """
         Retrieve the winner's bracket for a given league.
         """
@@ -184,7 +193,7 @@ class LeagueEndpoint:
 
     def get_losers_bracket(
             self, league_id: str, convert_results = CONVERT_RESULTS
-            ) -> List[Dict]:
+            ) -> Union[List[Dict], List[BracketModel]]:
         """
         Retrieve the loser's bracket for a given league.
         """
@@ -198,7 +207,7 @@ class LeagueEndpoint:
 
     def get_transactions(
             self, league_id: str, week: int, convert_results = CONVERT_RESULTS
-            ) -> List[Dict]:
+            ) -> Union[List[Dict], List[TransactionsModel]]:
         """
         Retrieve transactions for a given league. Filter by week.
         """
@@ -212,7 +221,7 @@ class LeagueEndpoint:
 
     def get_traded_picks(
             self, league_id: str, convert_results = CONVERT_RESULTS
-            ) -> List[Dict]:
+            ) -> Union[List[Dict], List[TradedPickModel]]:
         """
         Retrieve traded picks for a given league.
         """

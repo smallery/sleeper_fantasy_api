@@ -44,6 +44,9 @@ dev = [
     "pytest>=8.2.2",
     "pytest-cov>=5.0.0",
     "pytest-mock>=3.14.0",
+    "mypy>=1.10.0",
+    "types-requests>=2.31.0",
+    "ruff>=0.6.0",
 ]
 
 [project.urls]
@@ -56,3 +59,27 @@ zip-safe = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 127
+target-version = "py310"
+
+[tool.ruff.lint]
+# E/F/W is the flake8-equivalent core (pycodestyle + pyflakes). I is import
+# sorting, replacing isort. C90 is mccabe complexity, matching the
+# max-complexity=15 the old flake8 config set but never enforced because that
+# line used --exit-zero. This is deliberately not ruff's full/"ALL" rule set:
+# the docstring (D), annotation (ANN), and pylint-refactor (PLR) families
+# would demand a much larger rewrite than a CI-gating pass justifies.
+select = ["E", "F", "W", "I", "C90"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.mypy]
+python_version = "3.10"
+# Start permissive per issue #20: the goal is a green, useful gate before the
+# package ships py.typed (#19), not a --strict pass in one PR. Tighten later.
+ignore_missing_imports = true
+warn_unused_ignores = true
+exclude = ["^build/", "^dist/"]

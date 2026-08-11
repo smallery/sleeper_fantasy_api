@@ -1,4 +1,5 @@
-from typing import List, Dict, Optional, Union, Any
+from typing import Any, Dict, List, Optional, Union
+
 
 class DraftPick:
     def __init__(self, season: str, round: int, roster_id: int, previous_owner_id: int, owner_id: int):
@@ -9,7 +10,11 @@ class DraftPick:
         self.owner_id = owner_id
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Union[str, int]]) -> 'DraftPick':
+    def from_dict(cls, data: Dict[str, Any]) -> 'DraftPick':
+        # data's values are really str | int (season is str, the rest are int),
+        # but there's no single-key-typed-value structure available here without
+        # a TypedDict; Any avoids mypy treating every value as one big union
+        # that's incompatible with each individually-typed constructor param.
         return cls(
             season=data['season'],
             round=data['round'],
@@ -74,7 +79,7 @@ class TransactionsModel:
         drops: Optional[Dict[str, int]] = None,
         adds: Optional[Dict[str, int]] = None,
     ):
-        
+
         # Add type validation checks here
         if not isinstance(transaction_type, str):
             raise ValueError(f"Invalid type for 'transaction_type': expected str, got {type(transaction_type).__name__}")
