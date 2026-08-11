@@ -4,16 +4,18 @@ from typing import Dict, List, Optional
 class DraftModel:
     def __init__(
         self,
-        # from_json() validates these are present in the raw dict before
-        # calling this constructor, but does so via `data[field] is None`
-        # checks on `data` rather than on these already-extracted locals, so
-        # mypy can't narrow them back to non-Optional here. Widened to match
-        # what data.get(...) actually returns.
-        draft_id: Optional[str] = None,
-        league_id: Optional[str] = None,
-        season: Optional[str] = None,
-        status: Optional[str] = None,
-        draft_order: Optional[Dict[int, str]] = None,
+        # No `= None` default here: these are required arguments and
+        # DraftModel() must keep raising TypeError for missing arguments,
+        # same as before mypy was added. Optional[...] (without a default)
+        # only describes the *type* -- from_json() supplies these via
+        # data.get(...), which mypy correctly types as Optional since the
+        # Sleeper payload has no schema guarantee -- it does not make the
+        # argument omittable.
+        draft_id: Optional[str],
+        league_id: Optional[str],
+        season: Optional[str],
+        status: Optional[str],
+        draft_order: Optional[Dict[int, str]],
         picks: Optional[List[Dict]] = None,
     ):
         self.draft_id = str(draft_id)

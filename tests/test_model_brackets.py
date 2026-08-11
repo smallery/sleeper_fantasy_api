@@ -86,5 +86,13 @@ class TestBracketModel(unittest.TestCase):
         with self.assertRaises(KeyError):
             BracketModel.from_dict(bracket_data)
 
+    def test_bracket_model_public_l_kwarg_still_works(self):
+        # Regression test: BracketModel is exported from sleeper_api, so
+        # downstream code may construct it directly with the public `l`
+        # keyword (e.g. BracketModel(r=1, m=1, l=6)). That kwarg must not be
+        # renamed -- doing so would be a breaking API change.
+        bracket = BracketModel(r=1, m=1, l=6)
+        self.assertEqual(bracket.loser, 6)
+
 if __name__ == '__main__':
     unittest.main()

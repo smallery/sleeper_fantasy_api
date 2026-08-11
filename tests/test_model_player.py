@@ -75,5 +75,12 @@ class TestPlayerModel(unittest.TestCase):
         self.assertEqual(player.get_attribute("college"), "Michigan State")
         self.assertIsNone(player.get_attribute("non_existent_key"))  # Non-existent key should return None
 
+    def test_player_model_constructor_requires_player_id(self):
+        # Regression test: adding Optional[str] to satisfy mypy must not make
+        # player_id callable with no arguments -- PlayerModel() should still
+        # raise TypeError.
+        with self.assertRaises(TypeError):
+            PlayerModel()
+
 if __name__ == '__main__':
     unittest.main()

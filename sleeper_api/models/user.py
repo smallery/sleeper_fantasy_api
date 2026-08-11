@@ -25,13 +25,16 @@ class UserModel:
     """
     def __init__(
         self,
-        # Optional because from_json() supplies these via data.get(...),
-        # which mypy types as Optional -- the Sleeper payload has no schema
-        # guarantee.
-        username: Optional[str] = None,
-        user_id: Optional[str] = None,
-        display_name: Optional[str] = None,
-        avatar: Optional[str] = None,
+        # No `= None` defaults: all four are required arguments and
+        # UserModel() must keep raising TypeError for missing arguments,
+        # same as before mypy was added. Optional[str] (without a default)
+        # describes the *type* -- from_json() supplies these via
+        # data.get(...), which mypy types as Optional since the Sleeper
+        # payload has no schema guarantee -- it does not make them omittable.
+        username: Optional[str],
+        user_id: Optional[str],
+        display_name: Optional[str],
+        avatar: Optional[str],
     ):
         """
         Initialize the UserModel with the provided user data.

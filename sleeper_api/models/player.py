@@ -4,10 +4,13 @@ from typing import Any, Dict, Optional
 class PlayerModel:
     def __init__(
         self,
-        # Optional despite being the identifier: from_dict() builds this from
-        # attributes.get('player_id'), which mypy correctly types as
-        # Optional -- the Sleeper payload has no schema guarantee.
-        player_id: Optional[str] = None,
+        # No `= None` default: player_id is a required argument and
+        # PlayerModel() must keep raising TypeError if it's omitted, same as
+        # before mypy was added. Optional[str] (without a default) describes
+        # the *type* -- from_dict() builds this from attributes.get('player_id'),
+        # which mypy correctly types as Optional since the Sleeper payload
+        # has no schema guarantee -- it does not make the argument omittable.
+        player_id: Optional[str],
         first_name: Optional[str] = None,
         last_name: Optional[str] = None,
         position: Optional[str] = None,

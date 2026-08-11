@@ -9,7 +9,11 @@ class BracketModel:
         t1: Optional[Union[int, Dict[str, int]]] = None,  # Roster_id of team 1 OR {w: match_id}
         t2: Optional[Union[int, Dict[str, int]]] = None,  # Roster_id of team 2 OR {l: match_id}
         w: Optional[int] = None,          # Roster_id of the winning team (if match has been played)
-        loser: Optional[int] = None,      # Roster_id of the losing team (if match has been played)
+        # `l` is a public constructor kwarg (BracketModel is exported from
+        # sleeper_api, so downstream code may call BracketModel(..., l=...)).
+        # Renaming it would be a breaking change; suppress the ambiguous-name
+        # rule here instead of fixing it by renaming.
+        l: Optional[int] = None,  # noqa: E741 -- Roster_id of the losing team (if match has been played)
         t1_from: Optional[Dict[str, int]] = None,  # Where t1 comes from (either winner or loser of a match id)
         t2_from: Optional[Dict[str, int]] = None,  # Where t2 comes from (either winner or loser of a match id)
         p: Optional[int] = None          # Optional placeholder for specific positions in the bracket (e.g., 1st, 3rd)
@@ -19,7 +23,7 @@ class BracketModel:
         self.team1 = t1
         self.team2 = t2
         self.winner = w
-        self.loser = loser
+        self.loser = l
         self.team1_from = t1_from
         self.team2_from = t2_from
         self.position = p
@@ -35,7 +39,7 @@ class BracketModel:
             t1=data.get('t1'),
             t2=data.get('t2'),
             w=data.get('w'),
-            loser=data.get('l'),
+            l=data.get('l'),
             t1_from=data.get('t1_from'),
             t2_from=data.get('t2_from'),
             p=data.get('p')
