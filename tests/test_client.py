@@ -285,6 +285,56 @@ class TestRetryAfter(unittest.TestCase):
         mock_sleep.assert_not_called()
 
 
+class TestClientLifecycle(unittest.TestCase):
+    """close() / context-manager support -- see GitHub issue #22."""
+
+    def setUp(self):
+        self.client = SleeperClient()
+
+    def test_close_closes_the_session(self):
+        with patch.object(self.client.session, 'close') as mock_close:
+            self.client.close()
+            mock_close.assert_called_once()
+        self.assertTrue(self.client._closed)
+
+    def test_close_is_idempotent(self):
+        # Calling close() twice must not call session.close() twice -- a
+        # caller that closes defensively (e.g. in both a `finally` and an
+        # outer context manager) should not be punished for it.
+        with patch.object(self.client.session, 'close') as mock_close:
+            self.client.close()
+            self.client.close()
+            mock_close.assert_called_once()
+
+    def test_with_statement_closes_session_on_clean_exit(self):
+        with self.client as client:
+            self.assertIs(client, self.client)
+            self.assertFalse(self.client._closed)
+        self.assertTrue(self.client._closed)
+
+    def test_exception_inside_with_block_propagates_and_still_closes(self):
+        with self.assertRaises(ValueError):
+            with self.client:
+                raise ValueError("boom")
+        self.assertTrue(self.client._closed)
+
+    def test_enter_returns_the_client_itself(self):
+        with self.client as client:
+            self.assertIs(client, self.client)
+
+    @patch('sleeper_api.client.requests.Session.request')
+    def test_request_after_close_raises_clear_error(self, mock_request):
+        # requests.Session does not itself error on reuse after close() -- an
+        # adapter just opens a fresh socket -- so this client raises
+        # explicitly instead of silently reopening connections a caller
+        # believed were released.
+        self.client.close()
+        with self.assertRaises(RuntimeError) as ctx:
+            self.client.get('some-endpoint')
+        self.assertIn("closed", str(ctx.exception))
+        mock_request.assert_not_called()
+
+
 class TestParseRetryAfter(unittest.TestCase):
     """Unit coverage for the header parser itself."""
 
