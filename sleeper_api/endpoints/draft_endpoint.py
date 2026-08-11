@@ -1,5 +1,5 @@
 """
-This module provides the `DraftEndpoint` class for interacting with draft-related 
+This module provides the `DraftEndpoint` class for interacting with draft-related
 API endpoints of the Sleeper API.
 
 The `DraftEndpoint` class includes methods for retrieving draft information,
@@ -9,11 +9,13 @@ and by user, as well as handling the conversion of results into model instances.
 """
 
 
-from typing import List, Dict
+from typing import Dict, List, Union, cast
+
+from ..config import CONVERT_RESULTS, DEFAULT_SEASON
 from ..models.draft import DraftModel
 from ..models.picks import PicksModel
 from ..models.traded_picks import TradedPickModel
-from ..config import CONVERT_RESULTS, DEFAULT_SEASON
+
 
 # TO DO: set up results as objects for the draft
 class DraftEndpoint:
@@ -21,7 +23,7 @@ class DraftEndpoint:
     Provides methods for interacting with draft-related API endpoints of the Sleeper API.
 
     The `DraftEndpoint` class supports retrieving draft data, including specific drafts,
-    drafts by league or user, draft picks, and traded picks. 
+    drafts by league or user, draft picks, and traded picks.
     Results can be converted into model instances based on the specified parameters.
 
     Methods:
@@ -30,21 +32,21 @@ class DraftEndpoint:
         Retrieves a specific draft by its ID. Optionally converts the result into a `DraftModel`.
 
     - `get_drafts_by_league(league_id):
-        Retrieves all drafts for a specific league. Optionally converts the results 
+        Retrieves all drafts for a specific league. Optionally converts the results
         into a list of `DraftModel` instances.
 
     - `get_drafts_by_user(
             user_id: str, sport: str = 'nfl', season: int = DEFAULT_SEASON
             , convert_results: bool = CONVERT_RESULTS) -> List[DraftModel]`:
-        Retrieves all drafts for a specific user in a given season. Optionally converts 
+        Retrieves all drafts for a specific user in a given season. Optionally converts
         the results into a list of `DraftModel` instances.
 
     - `get_draft_picks(draft_id: str, convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves all picks made in a specific draft. Optionally converts the results 
+        Retrieves all picks made in a specific draft. Optionally converts the results
         into a list of `PicksModel` instances.
 
     - `get_traded_picks(draft_id: int, convert_results: bool = CONVERT_RESULTS) -> List[Dict]`:
-        Retrieves all traded picks in a specific draft. Optionally converts the 
+        Retrieves all traded picks in a specific draft. Optionally converts the
         results into a list of `TradedDraftPicksModel` instances.
 
     Attributes:
@@ -67,7 +69,7 @@ class DraftEndpoint:
     def __init__(self, client):
         self.client = client
 
-    def get_draft_by_id(self, draft_id: str, convert_results = CONVERT_RESULTS) -> DraftModel:
+    def get_draft_by_id(self, draft_id: str, convert_results = CONVERT_RESULTS) -> Union[Dict, DraftModel]:
         """
         Retrieve a specific draft by its ID.
         """
@@ -81,7 +83,7 @@ class DraftEndpoint:
 
     def get_drafts_by_league(self, league_id: str,
                              convert_results = CONVERT_RESULTS
-                             ) -> List[DraftModel]:
+                             ) -> Union[List[Dict], List[DraftModel]]:
         """
         Retrieve all drafts for a specific league.
         """
@@ -95,7 +97,7 @@ class DraftEndpoint:
 
     def get_drafts_by_user(self, user_id: str, sport: str = 'nfl',
                            season: int = DEFAULT_SEASON, convert_results = CONVERT_RESULTS
-                           ) -> List[DraftModel]:
+                           ) -> Union[List[Dict], List[DraftModel]]:
         """
         Retrieve all drafts for a specific user in a given season.
         """
@@ -108,9 +110,11 @@ class DraftEndpoint:
         # so I do a lookup on ID instead to get the full dataset
         draft_ids = [draft['draft_id'] for draft in drafts_json]
 
-        return [self.get_draft_by_id(draft_id) for draft_id in draft_ids]
+        # No convert_results passed to get_draft_by_id, so it uses the
+        # CONVERT_RESULTS default (True) -- always a DraftModel in practice.
+        return [cast(DraftModel, self.get_draft_by_id(draft_id)) for draft_id in draft_ids]
 
-    def get_draft_picks(self, draft_id: str, convert_results = CONVERT_RESULTS) -> List[Dict]:
+    def get_draft_picks(self, draft_id: str, convert_results = CONVERT_RESULTS) -> Union[List[Dict], List[PicksModel]]:
         """
         Retrieve all picks made in a specific draft.
         """
@@ -122,7 +126,9 @@ class DraftEndpoint:
 
         return [PicksModel.from_dict(pick) for pick in picks_json]
 
-    def get_traded_picks(self, draft_id: int, convert_results = CONVERT_RESULTS) -> List[Dict]:
+    def get_traded_picks(
+        self, draft_id: int, convert_results = CONVERT_RESULTS
+    ) -> Union[List[Dict], List[TradedPickModel]]:
         """
         Retrieve all traded picks in a specific draft.
         """

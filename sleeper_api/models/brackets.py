@@ -1,4 +1,5 @@
-from typing import Optional, Union, Dict, Any
+from typing import Any, Dict, Optional, Union
+
 
 class BracketModel:
     def __init__(
@@ -8,7 +9,11 @@ class BracketModel:
         t1: Optional[Union[int, Dict[str, int]]] = None,  # Roster_id of team 1 OR {w: match_id}
         t2: Optional[Union[int, Dict[str, int]]] = None,  # Roster_id of team 2 OR {l: match_id}
         w: Optional[int] = None,          # Roster_id of the winning team (if match has been played)
-        l: Optional[int] = None,          # Roster_id of the losing team (if match has been played)
+        # `l` is a public constructor kwarg (BracketModel is exported from
+        # sleeper_api, so downstream code may call BracketModel(..., l=...)).
+        # Renaming it would be a breaking change; suppress the ambiguous-name
+        # rule here instead of fixing it by renaming.
+        l: Optional[int] = None,  # noqa: E741 -- Roster_id of the losing team (if match has been played)
         t1_from: Optional[Dict[str, int]] = None,  # Where t1 comes from (either winner or loser of a match id)
         t2_from: Optional[Dict[str, int]] = None,  # Where t2 comes from (either winner or loser of a match id)
         p: Optional[int] = None          # Optional placeholder for specific positions in the bracket (e.g., 1st, 3rd)
@@ -57,4 +62,7 @@ class BracketModel:
         }
 
     def __repr__(self):
-        return f"<BracketModel(round={self.round}, match={self.match_id}, roster1={self.team1}, roster2={self.team2}, winner={self.winner}, loser={self.loser}, position={self.position})>"
+        return (
+            f"<BracketModel(round={self.round}, match={self.match_id}, roster1={self.team1}, "
+            f"roster2={self.team2}, winner={self.winner}, loser={self.loser}, position={self.position})>"
+        )

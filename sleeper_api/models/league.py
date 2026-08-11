@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, cast
+
 
 class LeagueModel:
     """
@@ -40,6 +41,14 @@ class LeagueModel:
     """
     def __init__(
         self,
+        # Required (no default): the check just below raises TypeError if any
+        # of these are falsy, so LeagueModel() must keep failing loudly, not
+        # silently succeed with a corrupt/None value. Attributes stay
+        # non-Optional (str/int, not Optional[str]/Optional[int]) because the
+        # constructor guarantees they're never None once it returns -- the
+        # Optional uncertainty from data.get(...) belongs to from_json()'s
+        # parsing step, not to this published attribute contract (see
+        # from_json()'s cast(...) calls below).
         league_id: str,
         name: str,
         status: str,
@@ -47,9 +56,14 @@ class LeagueModel:
         season: str,
         season_type: str,
         total_rosters: int,
-        roster_positions: List[str],
-        settings: Dict[str, int],
-        scoring_settings: Dict[str, float],
+        # Required (no default) but genuinely Optional in type: unlike the
+        # seven fields above, nothing in __init__ validates these are
+        # non-None, so Optional[...] reflects what from_json() can actually
+        # pass in (data.get(key, []/{}) always substitutes a default for a
+        # missing key, but mypy can't see that).
+        roster_positions: Optional[List[str]],
+        settings: Optional[Dict[str, int]],
+        scoring_settings: Optional[Dict[str, float]],
         metadata: Optional[Dict[str, str]] = None,
         avatar: Optional[str] = None,
         draft_id: Optional[str] = None,
@@ -64,7 +78,7 @@ class LeagueModel:
         last_transaction_id: Optional[str] = None,
         previous_league_id: Optional[str] = None,
     ):
-        
+
         # Raise a TypeError if any required fields are missing
         if not all([league_id, name, status, sport, season, season_type, total_rosters]):
             raise TypeError("Missing required fields in LeagueModel initialization")
@@ -103,15 +117,30 @@ class LeagueModel:
         self.traded_picks: Optional[List[Dict]] = None
 
     @classmethod
-    def from_json(cls, data: Dict):
+    def from_json(cls, data: Dict) -> 'LeagueModel':
+        league_id = data.get('league_id')
+        name = data.get('name')
+        status = data.get('status')
+        sport = data.get('sport')
+        season = data.get('season')
+        season_type = data.get('season_type')
+        total_rosters = data.get('total_rosters')
+
+        # __init__ raises the same TypeError on any falsy value (defense
+        # against direct construction), but checking it here too lets us
+        # cast these to their non-Optional attribute types below instead of
+        # passing Optional[str]/Optional[int] through to the constructor.
+        if not all([league_id, name, status, sport, season, season_type, total_rosters]):
+            raise TypeError("Missing required fields in LeagueModel initialization")
+
         return cls(
-            league_id=data.get('league_id'),
-            name=data.get('name'),
-            status=data.get('status'),
-            sport=data.get('sport'),
-            season=data.get('season'),
-            season_type=data.get('season_type'),
-            total_rosters=data.get('total_rosters'),
+            league_id=cast(str, league_id),
+            name=cast(str, name),
+            status=cast(str, status),
+            sport=cast(str, sport),
+            season=cast(str, season),
+            season_type=cast(str, season_type),
+            total_rosters=cast(int, total_rosters),
             roster_positions=data.get('roster_positions', []),
             settings=data.get('settings', {}),
             scoring_settings=data.get('scoring_settings', {}),

@@ -19,7 +19,7 @@ To use the provided endpoint classes, import them from this module:
     >>> draft_endpoint = DraftEndpoint(client)
     >>> player_endpoint = PlayerEndpoint(client)
 
-This module makes it convenient to work with different parts of the Sleeper API 
+This module makes it convenient to work with different parts of the Sleeper API
 by organizing related endpoints into separate classes.
 
 Note:
@@ -32,12 +32,12 @@ The `__all__` list controls what is imported when `from your_module import *` is
 """
 
 
-from .user_endpoint import UserEndpoint
-from .league_endpoint import LeagueEndpoint
 from .draft_endpoint import DraftEndpoint
+from .league_endpoint import LeagueEndpoint
+from .nfl_endpoint import NFLEndpoint
 from .player_endpoint import PlayerEndpoint
 from .projections_endpoint import ProjectionsEndpoint
-from .nfl_endpoint import NFLEndpoint
+from .user_endpoint import UserEndpoint
 
 __all__ = [
     "UserEndpoint",

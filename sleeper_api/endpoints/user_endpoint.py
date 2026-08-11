@@ -1,10 +1,12 @@
-from typing import List, Optional
-from ..models.user import UserModel
-from ..models.league import LeagueModel
-from ..models.draft import DraftModel
-from .draft_endpoint import DraftEndpoint
-from ..exceptions import SleeperAPIError
+from typing import Dict, List, Optional, Union, cast
+
 from ..config import CONVERT_RESULTS, DEFAULT_SEASON
+from ..exceptions import SleeperAPIError
+from ..models.draft import DraftModel
+from ..models.league import LeagueModel
+from ..models.user import UserModel
+from .draft_endpoint import DraftEndpoint
+
 
 class UserEndpoint:
     '''
@@ -13,7 +15,9 @@ class UserEndpoint:
     def __init__(self, client):
         self.client = client
 
-    def get_user(self, user_id: str = None, username: str = None, convert_results: bool = CONVERT_RESULTS) -> UserModel:
+    def get_user(
+        self, user_id: Optional[str] = None, username: Optional[str] = None, convert_results: bool = CONVERT_RESULTS
+    ) -> Union[Dict, UserModel]:
         """
         Retrieve user information by user_id or username.
 
@@ -33,7 +37,9 @@ class UserEndpoint:
 
         return UserModel.from_json(user_data)
 
-    def fetch_nfl_leagues(self, user_id: str, season: Optional[int] = None, convert_results: bool = CONVERT_RESULTS) -> List[LeagueModel]:
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int] = None, convert_results: bool = CONVERT_RESULTS
+    ) -> Union[List[Dict], List[LeagueModel]]:
         """
         Retrieve all of the leagues for a given user in a specific season.
 
@@ -60,7 +66,9 @@ class UserEndpoint:
 
         return [LeagueModel.from_json(league) for league in leagues_data]
 
-    def get_all_drafts(self, user_id: str, sport: str = 'nfl', season: int = DEFAULT_SEASON, convert_results: bool = CONVERT_RESULTS) -> List[DraftModel]:
+    def get_all_drafts(
+        self, user_id: str, sport: str = 'nfl', season: int = DEFAULT_SEASON, convert_results: bool = CONVERT_RESULTS
+    ) -> Union[List[Dict], List[DraftModel]]:
         """
         Retrieve all drafts for a user for a given season, default is the current season.
 
@@ -75,12 +83,14 @@ class UserEndpoint:
 
         if not draft_data:
             raise SleeperAPIError(f"No draft data found for the {season} season.")
-        
+
         if not convert_results:
             return draft_data
-        
+
         # Optionally lookup full draft details by ID if draft order is missing
         draft_ids = [draft['draft_id'] for draft in draft_data]
         draft_endpoint = DraftEndpoint(self.client)
 
-        return [draft_endpoint.get_draft_by_id(draft_id) for draft_id in draft_ids]
+        # No convert_results passed to get_draft_by_id, so it uses the
+        # CONVERT_RESULTS default (True) -- always a DraftModel in practice.
+        return [cast(DraftModel, draft_endpoint.get_draft_by_id(draft_id)) for draft_id in draft_ids]

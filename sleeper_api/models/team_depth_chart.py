@@ -3,7 +3,7 @@ Model for NFL team depth charts from Sleeper API.
 
 Note: This uses an undocumented Sleeper endpoint that may change.
 """
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
 
 class TeamDepthChartModel:

@@ -6,14 +6,16 @@ It supports handling HTTP requests and responses, including managing authenticat
 headers and timeouts.
 
 """
-import time
 import logging
+import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+
 import requests
 from requests.adapters import HTTPAdapter
+
 from .config import BASE_URL
-from .exceptions import SleeperAPIError, RateLimitError
+from .exceptions import RateLimitError, SleeperAPIError
 
 logger = logging.getLogger(__name__)
 

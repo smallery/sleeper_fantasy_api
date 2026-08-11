@@ -48,5 +48,12 @@ class TestUserEndpoint(unittest.TestCase):
             self.user_resource.get_user(user_id="nonexistent")
         self.assertEqual(str(context.exception), "User not found")
 
+    def test_user_model_constructor_requires_arguments(self):
+        # Regression test: adding Optional[str] annotations to satisfy mypy
+        # must not make UserModel's constructor arguments callable with no
+        # arguments -- UserModel() should still raise TypeError.
+        with self.assertRaises(TypeError):
+            UserModel()
+
 if __name__ == '__main__':
     unittest.main()

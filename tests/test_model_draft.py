@@ -57,5 +57,14 @@ class TestDraftModel(unittest.TestCase):
         with self.assertRaises(TypeError):
             DraftModel.from_json(draft_data)
 
+    def test_draft_model_constructor_requires_arguments(self):
+        # Regression test: adding Optional[...] annotations to satisfy mypy
+        # must not make the constructor's arguments callable with no
+        # arguments -- DraftModel() should still raise TypeError, not
+        # silently succeed with draft_id/league_id coerced to the string
+        # "None".
+        with self.assertRaises(TypeError):
+            DraftModel()
+
 if __name__ == '__main__':
     unittest.main()

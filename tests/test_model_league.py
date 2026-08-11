@@ -128,6 +128,12 @@ class TestLeagueModel(unittest.TestCase):
         with self.assertRaises(TypeError):
             LeagueModel.from_json(invalid_league_data)
 
+    def test_league_model_constructor_requires_arguments(self):
+        # Regression test: adding Optional[...] annotations to satisfy mypy
+        # must not make the constructor's arguments callable with no
+        # arguments -- LeagueModel() should still raise TypeError.
+        with self.assertRaises(TypeError):
+            LeagueModel()
 
 
 if __name__ == '__main__':

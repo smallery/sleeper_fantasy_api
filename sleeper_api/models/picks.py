@@ -1,7 +1,9 @@
 ## TO DO Fix this so picks model is simpler
 
-from typing import List, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
+
 from ..exceptions import SleeperAPIError
+
 
 class PickMetadata:
     def __init__(
@@ -74,7 +76,7 @@ class PicksModel:
         is_keeper: Optional[bool],
         draft_id: str
     ):
-        
+
         # Type validation for important fields
         if not isinstance(player_id, str):
             raise SleeperAPIError(f"Invalid type for player_id: expected str, got {type(player_id).__name__}")
@@ -109,7 +111,12 @@ class PicksModel:
         return f"{self.metadata.first_name} {self.metadata.last_name}"
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Union[str, int, Optional[bool], Dict[str, str]]]):
+    def from_dict(cls, data: Dict[str, Any]):
+        # `data` genuinely mixes str/int/bool/None/dict values across keys; a
+        # single Union[...] applied to every value (the previous annotation)
+        # made mypy reject perfectly valid per-field assignments below since
+        # it can't narrow by key. __init__'s isinstance checks still validate
+        # each field at runtime.
         metadata = PickMetadata.from_dict(data['metadata'])
         return cls(
             player_id=data['player_id'],
@@ -141,7 +148,7 @@ class PicksModel:
         Create a list of PicksModel instances from a list of dictionaries.
         """
         return [cls.from_dict(data) for data in data_list]
-    
+
     def __repr__(self):
         return (f"<Pick(player_id={self.player_id}, player_name={self.player_name}, "
                 f"round={self.round}, picked_by={self.picked_by}, "

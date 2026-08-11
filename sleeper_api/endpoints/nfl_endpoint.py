@@ -7,10 +7,11 @@ Note: These endpoints are undocumented and may change without notice.
 import logging
 from datetime import datetime
 from typing import List, Union
-from ..models.team_depth_chart import TeamDepthChartModel
-from ..models.schedule import NFLScheduleModel, ScheduleGameModel
-from ..exceptions import SleeperAPIError
+
 from ..config import CONVERT_RESULTS
+from ..exceptions import SleeperAPIError
+from ..models.schedule import NFLScheduleModel
+from ..models.team_depth_chart import TeamDepthChartModel
 
 logger = logging.getLogger(__name__)
 
