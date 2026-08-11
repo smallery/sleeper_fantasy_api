@@ -604,3 +604,55 @@ class TestCloseRaceWithInFlightRequest(unittest.TestCase):
         client.close()
         with self.assertRaises(RuntimeError):
             client.get("state/nfl")
+
+
+class TestDeferredSessionRelease(unittest.TestCase):
+    """A non-blocking close() must not release the session under a registered attempt.
+
+    Atomic registration only helps a *draining* close. With the zero-drain
+    default, a thread could register `_inflight`, be descheduled before
+    session.request(), and have close() release the session underneath it --
+    the resumed attempt then builds a fresh pool, opening a socket after
+    close() returned. The last request out releases the session instead.
+    """
+
+    def test_default_close_defers_release_to_the_last_request(self):
+        client = SleeperClient()
+        registered = threading.Event()
+        resume = threading.Event()
+        observed = {}
+
+        real_request = client.session.request
+
+        def parked_request(*a, **k):
+            # Stand in for a thread descheduled between registering and
+            # actually issuing the request.
+            registered.set()
+            resume.wait(5)
+            observed["adapters_at_request"] = dict(client.session.adapters)
+            r = Mock()
+            r.status_code, r.ok, r.headers = 200, True, {}
+            r.json.return_value = {"ok": True}
+            return r
+
+        client.session.request = parked_request
+        worker = threading.Thread(target=lambda: client.get("state/nfl"))
+        worker.start()
+        self.assertTrue(registered.wait(5))
+
+        t0 = time.monotonic()
+        client.close()                       # default: must not block
+        self.assertLess(time.monotonic() - t0, 0.5, "default close() blocked")
+        self.assertFalse(client._released, "session released while a request was registered")
+
+        resume.set()
+        worker.join(5)
+        self.assertTrue(observed["adapters_at_request"], "adapters were cleared mid-request")
+        # The last request out completes the release.
+        self.assertTrue(client._released, "last request did not release the session")
+        self.assertIsNot(real_request, None)
+
+    def test_close_with_nothing_in_flight_releases_immediately(self):
+        client = SleeperClient()
+        client.close()
+        self.assertTrue(client._released)

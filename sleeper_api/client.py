@@ -156,6 +156,7 @@ class SleeperClient:
         self._lifecycle = threading.Condition()
         self._inflight = 0
         self._released = False
+        self._release_pending = False
 
     def close(self, drain: float = 0.0) -> None:
         """
@@ -193,14 +194,35 @@ class SleeperClient:
 
             self._closed = True
             if wait_budget:
-                if not self._wait_until(lambda: self._inflight == 0, wait_budget):
-                    logger.warning(
-                        f"close(drain={drain}) gave up with {self._inflight} "
-                        f"request(s) still in flight; releasing the session anyway"
-                    )
+                self._wait_until(lambda: self._inflight == 0, wait_budget)
 
+            if self._inflight:
+                # Requests are still registered. Releasing the session now
+                # would let a thread that registered but has not yet reached
+                # session.request() resume against closed adapters, which
+                # simply builds a fresh pool -- a new socket opened after
+                # close() returned. Hand the release to whichever request
+                # leaves last, so the caller is never blocked and the session
+                # still outlives every attempt that claimed it.
+                self._release_pending = True
+                logger.debug(
+                    f"close() deferring session release to the last of "
+                    f"{self._inflight} in-flight request(s)"
+                )
+                return
+
+        self._release()
+
+    def _release(self):
+        """
+        Close the session and wake anything waiting on `_released`.
+
+        Called outside `_lifecycle` -- either by close() when nothing is in
+        flight, or by the last request to deregister after a deferred close.
+        """
         self.session.close()
         with self._lifecycle:
+            self._release_pending = False
             self._released = True
             self._lifecycle.notify_all()
 
@@ -356,6 +378,11 @@ class SleeperClient:
                 with self._lifecycle:
                     self._inflight -= 1
                     self._lifecycle.notify_all()
+                    # A close() that arrived while this attempt was registered
+                    # left the session for the last one out to release.
+                    release_now = self._release_pending and self._inflight == 0
+                if release_now:
+                    self._release()
 
             # Retry rate limits and transient server errors. 5xx used to be
             # retried by the adapter's urllib3 Retry; it is handled here now so
