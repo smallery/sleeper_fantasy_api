@@ -7,6 +7,7 @@ headers and timeouts.
 
 """
 import logging
+import threading
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -19,6 +20,11 @@ from .config import BASE_URL, CONVERT_RESULTS
 from .exceptions import RateLimitError, SleeperAPIError
 
 logger = logging.getLogger(__name__)
+
+# How long close() waits for in-flight requests to finish before releasing
+# the session anyway. Bounded so a hung request cannot make close() block
+# forever during an orderly shutdown.
+CLOSE_DRAIN_TIMEOUT_SECONDS = 30.0
 
 # Status codes worth retrying: 429 is Sleeper rate limiting, the 5xx set is
 # transient server/gateway failure. Anything else is a real answer and is
@@ -140,6 +146,17 @@ class SleeperClient:
         # made one more call.
         self._closed = False
 
+        # Guards `_closed` and `_inflight` together. Checking `_closed`
+        # and registering the request has to be one atomic step: with a
+        # bare flag read, close() could complete in the gap between the
+        # check and session.request(), and requests would then open a
+        # fresh socket on the closed adapter -- the very thing the flag
+        # exists to prevent. The lock is released before the HTTP call so
+        # concurrent requests still overlap; only the bookkeeping is
+        # serialized.
+        self._lifecycle = threading.Condition()
+        self._inflight = 0
+
     def close(self) -> None:
         """
         Release the underlying HTTP session and its connection pool.
@@ -147,10 +164,26 @@ class SleeperClient:
         Idempotent -- calling this more than once (or on a client that was
         never used) is a no-op after the first call.
         """
-        if self._closed:
-            return
+        with self._lifecycle:
+            if self._closed:
+                return
+            # Mark closed first so no *new* request can register, then wait
+            # for the ones already in flight. Closing the session first (as
+            # this used to) left already-running requests to fail in
+            # confusing ways, or to quietly reopen sockets after cleanup.
+            self._closed = True
+            deadline = time.monotonic() + CLOSE_DRAIN_TIMEOUT_SECONDS
+            while self._inflight:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    logger.warning(
+                        f"close() timed out after {CLOSE_DRAIN_TIMEOUT_SECONDS}s "
+                        f"with {self._inflight} request(s) still in flight; "
+                        f"releasing the session anyway"
+                    )
+                    break
+                self._lifecycle.wait(remaining)
         self.session.close()
-        self._closed = True
 
     def __enter__(self) -> "SleeperClient":
         return self
@@ -263,7 +296,11 @@ class SleeperClient:
         backoff = self.initial_backoff
 
         for attempt in range(self.max_retries + 1):
-            self._check_not_closed()
+            # Atomically confirm the client is open and register this
+            # attempt, so close() cannot slip in between the two.
+            with self._lifecycle:
+                self._check_not_closed()
+                self._inflight += 1
             try:
                 response = self.session.request(
                     method=method,
@@ -279,6 +316,13 @@ class SleeperClient:
                     backoff *= 2
                     continue
                 raise SleeperAPIError(f"Request failed after {self.max_retries} retries: {exc}") from exc
+            finally:
+                # Deregister as soon as the HTTP call returns, so a client
+                # waiting in close() is not held up by this attempt's backoff
+                # sleep -- only by work actually on the wire.
+                with self._lifecycle:
+                    self._inflight -= 1
+                    self._lifecycle.notify_all()
 
             # Retry rate limits and transient server errors. 5xx used to be
             # retried by the adapter's urllib3 Retry; it is handled here now so

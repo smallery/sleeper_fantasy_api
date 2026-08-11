@@ -496,3 +496,53 @@ class TestParseRetryAfter(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestCloseRaceWithInFlightRequest(unittest.TestCase):
+    """close() must not release the session under a request already on the wire.
+
+    Checking `_closed` and starting the request used to be two separate steps,
+    so close() could complete in the gap and requests would open a fresh socket
+    on the closed adapter -- the exact thing the flag exists to prevent.
+    """
+
+    def test_close_waits_for_an_in_flight_request(self):
+        client = SleeperClient()
+        entered = threading.Event()
+        release = threading.Event()
+        closed_while_inflight = []
+
+        def slow_request(*a, **k):
+            entered.set()
+            release.wait(5)
+            # If close() had already finished, the session would be released
+            # out from under this call.
+            closed_while_inflight.append(client.session.adapters == {})
+            r = Mock()
+            r.status_code, r.ok, r.headers = 200, True, {}
+            r.json.return_value = {"ok": True}
+            return r
+
+        client.session.request = slow_request
+        worker = threading.Thread(target=lambda: client.get("state/nfl"))
+        worker.start()
+        self.assertTrue(entered.wait(5), "request never started")
+
+        closer = threading.Thread(target=client.close)
+        closer.start()
+        # close() must block while the request is in flight.
+        closer.join(timeout=0.3)
+        self.assertTrue(closer.is_alive(), "close() returned while a request was in flight")
+
+        release.set()
+        worker.join(5)
+        closer.join(5)
+        self.assertFalse(closer.is_alive())
+        self.assertEqual(closed_while_inflight, [False],
+                         "session was released before the in-flight request finished")
+
+    def test_request_starting_after_close_is_refused(self):
+        client = SleeperClient()
+        client.close()
+        with self.assertRaises(RuntimeError):
+            client.get("state/nfl")
