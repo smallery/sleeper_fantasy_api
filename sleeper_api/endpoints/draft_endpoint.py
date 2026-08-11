@@ -16,6 +16,7 @@ from ..models.draft import DraftModel
 from ..models.picks import PicksModel
 from ..models.traded_picks import TradedPickModel
 
+
 # TO DO: set up results as objects for the draft
 class DraftEndpoint:
     """

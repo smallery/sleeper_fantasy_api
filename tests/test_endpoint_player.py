@@ -129,3 +129,49 @@ class TestPlayerEndpoint(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestPoisonedPlayerCache(unittest.TestCase):
+    """A cache file written by a pre-#21 version must not break get_all_players.
+
+    Until get_trending_players() stopped passing convert_results positionally
+    into `sport`, this endpoint fetched `players/True`, got a 404 (None), and
+    cached it. Upgrading with such a file on disk used to raise AttributeError
+    on the .items() call.
+    """
+
+    def setUp(self):
+        self.client = MagicMock()
+        self.endpoint = PlayerEndpoint(self.client)
+
+    def _poison(self, value):
+        import gzip
+        import json
+        self.endpoint.cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with gzip.open(self.endpoint.cache_file, 'wt') as f:
+            json.dump(value, f)
+
+    def tearDown(self):
+        if self.endpoint.cache_file.exists():
+            self.endpoint.cache_file.unlink()
+
+    def test_non_mapping_cache_is_treated_as_a_miss_and_refetched(self):
+        for poison in ([], None, "nope"):
+            with self.subTest(poison=poison):
+                self._poison(poison)
+                self.client.get.return_value = {"1234": {"player_id": "1234"}}
+                players = self.endpoint.get_all_players(convert_results=False)
+                self.assertEqual(players, {"1234": {"player_id": "1234"}})
+                self.client.get.assert_called_with("players/nfl")
+
+    def test_unusable_response_is_not_cached(self):
+        self._poison([])
+        self.client.get.return_value = None
+        with self.assertRaises(SleeperAPIError):
+            self.endpoint.get_all_players(convert_results=False)
+        # The bad response must not have overwritten the cache with more garbage.
+        self.client.get.return_value = {"1234": {"player_id": "1234"}}
+        self.assertEqual(
+            self.endpoint.get_all_players(convert_results=False),
+            {"1234": {"player_id": "1234"}},
+        )

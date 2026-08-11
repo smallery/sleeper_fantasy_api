@@ -80,12 +80,27 @@ class PlayerEndpoint:
         """
         Retrieve all players, either from the cache or by making an API call.
         """
-        if self._is_cache_valid():
-            players_json = self._load_cache()
-        else:
+        players_json = self._load_cache() if self._is_cache_valid() else None
+
+        # A cached payload that isn't a player mapping is unusable. This is not
+        # hypothetical: until issue #21 was fixed, get_trending_players() passed
+        # convert_results positionally into `sport`, so this method fetched
+        # `players/True`, got a 404 (i.e. None), and cached that. Anyone who ran
+        # an earlier version therefore has a poisoned cache file, and loading it
+        # blindly raised AttributeError on the .items() call below. Treat a
+        # non-mapping cache as a miss and re-fetch instead.
+        if not isinstance(players_json, dict):
             endpoint = f"players/{sport}"
             players_json = self.client.get(endpoint)
-            self._save_cache(players_json)
+            # Only cache a usable response, so a bad fetch cannot poison the
+            # cache for every later call the way it used to.
+            if isinstance(players_json, dict):
+                self._save_cache(players_json)
+            else:
+                raise SleeperAPIError(
+                    f"Expected a player mapping from {endpoint}, got "
+                    f"{type(players_json).__name__}"
+                )
 
         if not convert_results:
             return players_json
@@ -132,7 +147,13 @@ class PlayerEndpoint:
         # would have requested players/True from the API). Keyword args also let
         # trending players for a non-nfl sport get looked up against player data
         # for the *same* sport, rather than always defaulting to 'nfl'.
-        all_players = self.get_all_players(sport=sport, convert_results=convert_results)
+        # The `not convert_results` early return above means we can only reach
+        # here with convert_results True, so get_all_players' Union return is
+        # narrowed to PlayerModel here.
+        all_players = cast(
+            List[PlayerModel],
+            self.get_all_players(sport=sport, convert_results=convert_results),
+        )
         player_dict = {player.player_id: player for player in all_players}
 
         result = []

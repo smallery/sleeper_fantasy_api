@@ -7,6 +7,7 @@ from ..models.league import LeagueModel
 from ..models.user import UserModel
 from .draft_endpoint import DraftEndpoint
 
+
 class UserEndpoint:
     '''
     Class to interact with the user endpoint more easily
@@ -39,7 +40,9 @@ class UserEndpoint:
         user_data = self.client.get(endpoint)
 
         if user_data is None:
-            raise UserNotFoundError(user_id or username)
+            # The guard above already rejected the both-None case, so one of
+            # these is a str even though each is individually Optional.
+            raise UserNotFoundError(cast(str, user_id or username))
 
         if not convert_results:
             return user_data
@@ -105,7 +108,13 @@ class UserEndpoint:
 
         return [LeagueModel.from_json(league) for league in leagues_data]
 
-    def get_all_drafts(self, user_id: str, sport: str = 'nfl', season: Optional[int] = None, convert_results: bool = CONVERT_RESULTS) -> Union[List[Dict], List[DraftModel]]:
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str = 'nfl',
+        season: Optional[int] = None,
+        convert_results: bool = CONVERT_RESULTS,
+    ) -> Union[List[Dict], List[DraftModel]]:
         """
         Retrieve all drafts for a user for a given season, default is the current season.
 

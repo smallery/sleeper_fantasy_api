@@ -9,7 +9,7 @@ It supports optional conversion of results into model instances.
 from typing import Any, Dict, List, Union, cast
 
 from ..config import CONVERT_RESULTS
-from ..exceptions import LeagueNotFoundError, SleeperAPIError
+from ..exceptions import LeagueNotFoundError
 from ..models.brackets import BracketModel
 from ..models.league import LeagueModel
 from ..models.matchups import MatchupModel
