@@ -6,11 +6,11 @@ import gzip
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, Union, cast, overload
 
 from platformdirs import user_cache_dir
 
-from ..config import CACHE_DURATION, CONVERT_RESULTS
+from ..config import CACHE_DURATION
 from ..exceptions import SleeperAPIError
 from ..models.player import PlayerModel
 
@@ -34,6 +34,11 @@ _SEARCH_OPERATORS = {
 class PlayerEndpoint:
     """
     Player endpoint class to enable easy interactions with the API for player info
+
+    Every method's ``convert_results`` parameter defaults to the owning
+    `SleeperClient`'s `convert_results` setting when omitted (``None``) --
+    see issue #24. Pass it explicitly to override that default for a single
+    call.
     """
     def __init__(self, client, cache_file=None):
         self.client = client
@@ -74,12 +79,31 @@ class PlayerEndpoint:
         except IOError as e:
             print(f"Warning: Could not save cache file: {e}")
 
+    @overload
+    def get_all_players(self, sport: str = 'nfl', *, convert_results: Literal[True]) -> List[PlayerModel]: ...
+    @overload
+    def get_all_players(self, sport: str, convert_results: Literal[True]) -> List[PlayerModel]: ...
+    @overload
+    def get_all_players(self, sport: str = 'nfl', *, convert_results: Literal[False]) -> Dict[str, Dict]: ...
+    @overload
+    def get_all_players(self, sport: str, convert_results: Literal[False]) -> Dict[str, Dict]: ...
+    @overload
     def get_all_players(
-            self, sport = 'nfl', convert_results = CONVERT_RESULTS
+        self, sport: str = 'nfl', convert_results: Optional[bool] = None
+    ) -> Union[Dict[str, Dict], List[PlayerModel]]: ...
+
+    def get_all_players(
+            self, sport: str = 'nfl', convert_results: Optional[bool] = None
             ) -> Union[Dict[str, Dict], List[PlayerModel]]:
         """
         Retrieve all players, either from the cache or by making an API call.
+
+        :param convert_results: If omitted, uses the owning client's
+            `convert_results` default.
         """
+        if convert_results is None:
+            convert_results = self.client.convert_results
+
         players_json = self._load_cache() if self._is_cache_valid() else None
 
         # A cached payload that isn't a player mapping is unusable. This is not
@@ -110,9 +134,35 @@ class PlayerEndpoint:
             ]
         return players
 
+    @overload
+    def get_trending_players(
+        self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
+        limit: Optional[int] = 25, *, convert_results: Literal[True]
+    ) -> List[PlayerModel]: ...
+    @overload
+    def get_trending_players(
+        self, trend_type: str, sport: str, lookback_hours: Optional[int],
+        limit: Optional[int], convert_results: Literal[True]
+    ) -> List[PlayerModel]: ...
+    @overload
+    def get_trending_players(
+        self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
+        limit: Optional[int] = 25, *, convert_results: Literal[False]
+    ) -> List[Dict[str, Any]]: ...
+    @overload
+    def get_trending_players(
+        self, trend_type: str, sport: str, lookback_hours: Optional[int],
+        limit: Optional[int], convert_results: Literal[False]
+    ) -> List[Dict[str, Any]]: ...
+    @overload
+    def get_trending_players(
+        self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
+        limit: Optional[int] = 25, convert_results: Optional[bool] = None
+    ) -> Union[List[Dict[str, Any]], List[PlayerModel]]: ...
+
     def get_trending_players(
             self, trend_type: str, sport: str = 'nfl', lookback_hours: Optional[int] = 24,
-            limit: Optional[int] = 25, convert_results=CONVERT_RESULTS
+            limit: Optional[int] = 25, convert_results: Optional[bool] = None
             ) -> Union[List[Dict[str, Any]], List[PlayerModel]]:
         """
         Retrieve trending players based on adds or drops.
@@ -121,10 +171,15 @@ class PlayerEndpoint:
         :param trend_type: Either 'add' or 'drop'.
         :param lookback_hours: Number of hours to look back (default is 24).
         :param limit: Number of results you want (default is 25).
+        :param convert_results: If omitted, uses the owning client's
+            `convert_results` default.
         :return: A list of PlayerModel instances if convert_results is True, or the raw data if False.
         """
         if trend_type not in ('add', 'drop'):
             raise SleeperAPIError("Trend type must either be add or drop.")
+
+        if convert_results is None:
+            convert_results = self.client.convert_results
 
         # Query params go through the client's params= (which requests
         # URL-encodes), not hand-built into the path -- interpolating values
@@ -135,25 +190,31 @@ class PlayerEndpoint:
         trending_data = self.client.get(
             endpoint, params={"lookback_hours": lookback_hours, "limit": limit}
         )
+        # Sleeper 404s when the collection does not exist for these
+        # arguments, which the client surfaces as None. Return an empty
+        # collection instead of leaking it: the raw path would otherwise
+        # hand back None against a declared List[...], and the convert
+        # path raised "'NoneType' object is not iterable".
+        if trending_data is None:
+            return []
+
 
         if not convert_results:
             return trending_data
 
         # If convert_results is True, map the trending data to PlayerModel instances.
         # Both args must be passed as keywords: get_all_players()'s signature is
-        # (sport='nfl', convert_results=CONVERT_RESULTS), so a positional call here
+        # (sport='nfl', convert_results=...), so a positional call here
         # silently landed convert_results in the `sport` slot instead (it went
         # unnoticed because the cache-hit path never uses `sport`; a cache miss
         # would have requested players/True from the API). Keyword args also let
         # trending players for a non-nfl sport get looked up against player data
         # for the *same* sport, rather than always defaulting to 'nfl'.
         # The `not convert_results` early return above means we can only reach
-        # here with convert_results True, so get_all_players' Union return is
-        # narrowed to PlayerModel here.
-        all_players = cast(
-            List[PlayerModel],
-            self.get_all_players(sport=sport, convert_results=convert_results),
-        )
+        # here with convert_results True; passing it as a keyword literal True
+        # lets the @overload on get_all_players() narrow the result to
+        # List[PlayerModel] without a cast.
+        all_players = self.get_all_players(sport=sport, convert_results=True)
         player_dict = {player.player_id: player for player in all_players}
 
         result = []
@@ -169,24 +230,45 @@ class PlayerEndpoint:
 
         return result
 
-    def get_player(self,player_id):
+    def get_player(self, player_id: str) -> PlayerModel:
         """
         Returns a specific playerModel for the player ID
         """
-        for player in self.get_all_players():
+        for player in self.get_all_players(convert_results=True):
             if player.player_id == player_id:
                 return player
 
         raise SleeperAPIError(f"Player_ID: {player_id} Not Found")
 
-    def search_players(self, search_keys: Dict[str, Any], convert_results=CONVERT_RESULTS):
+    @overload
+    def search_players(self, search_keys: Dict[str, Any], *, convert_results: Literal[True]) -> List[PlayerModel]: ...
+    @overload
+    def search_players(self, search_keys: Dict[str, Any], convert_results: Literal[True]) -> List[PlayerModel]: ...
+    @overload
+    def search_players(self, search_keys: Dict[str, Any], *, convert_results: Literal[False]) -> List[Dict]: ...
+    @overload
+    def search_players(self, search_keys: Dict[str, Any], convert_results: Literal[False]) -> List[Dict]: ...
+    @overload
+    def search_players(
+        self, search_keys: Dict[str, Any], convert_results: Optional[bool] = None
+    ) -> Union[List[Dict], List[PlayerModel]]: ...
+
+    def search_players(
+        self, search_keys: Dict[str, Any], convert_results: Optional[bool] = None
+    ) -> Union[List[Dict], List[PlayerModel]]:
         """
         Search for players based on complex criteria using a combination of AND/OR logic and comparison operators.
 
         This function retrieves all player data and filters it according to the search keys provided.
         The search keys can include various logical conditions (AND/OR) and comparison operators
         (e.g., '==', '!=', '>', '<', '>=', '<=', 'in', 'not in') for different attributes of the player data.
+
+        :param convert_results: If omitted, uses the owning client's
+            `convert_results` default.
         """
+        if convert_results is None:
+            convert_results = self.client.convert_results
+
         def safe_search_type(record, key, value):
             record_value = record.get(key)
 
@@ -243,9 +325,9 @@ class PlayerEndpoint:
     def get_players_by_team(self,team_abbr) -> List[PlayerModel]:
         '''use the query to return a list of player models where the team_abbr matches the player team_abbr'''
         team_players = []
-        # No convert_results passed, so this uses the CONVERT_RESULTS default
-        # (True) -- always a List[PlayerModel] in practice.
-        for player in cast(List[PlayerModel], self.get_all_players()):
+        # convert_results=True passed explicitly, so the @overload on
+        # get_all_players() narrows this to List[PlayerModel] with no cast.
+        for player in self.get_all_players(convert_results=True):
             if player.team_abbr == team_abbr:
                 team_players.append(player)
 

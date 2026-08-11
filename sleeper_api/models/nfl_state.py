@@ -58,6 +58,6 @@ class NFLStateModel:
             'display_week': self.display_week,
         }
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"<NFLStateModel(season={self.season}, week={self.week}, "
                 f"season_type={self.season_type})>")

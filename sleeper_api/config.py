@@ -14,29 +14,49 @@ BASE_URL = "https://api.sleeper.app/v1/"
 # this tells us the default behavior for the API wrapper.
 # True = convert everything to object oriented version
 # False = return raw json results with no object oriented conversion
+#
+# This is *only* the fallback default (mirrors e.g. SleeperClient's
+# timeout=10) -- it is not itself the mechanism a package user reaches for
+# to change the setting. See issue #24 for the rejected alternative and why.
 CONVERT_RESULTS = True
-# TO DO: implement way for package user to specify this:
-# ex:
-# class Config:
-#     def __init__(self):
-#         # Default configuration
-#         self.CONVERT_RESULTS = True
 
-#     def set_convert_results(self, value: bool):
-#         self.CONVERT_RESULTS = value
-
-#     def get_convert_results(self) -> bool:
-#         return self.CONVERT_RESULTS
-
-# # Create a global config instance
-# config = Config()
-# then in the files, instead of importing CONVERT_RESULTS I can instead:
-# import it: from sleeper_fantasy_api.config import config
-# reference it: result = config.get_convert_results()
-
-# user could specify globally by doing something like:
-# from sleeper_fantasy_api.config import config
-# config.set_convert_results(False)
+# --- Per-client convert_results (see GitHub issue #24) ---------------------
+#
+# This module used to carry a commented-out sketch here proposing a mutable
+# module-level singleton:
+#
+#   class Config:
+#       def __init__(self):
+#           self.CONVERT_RESULTS = True
+#       def set_convert_results(self, value: bool):
+#           self.CONVERT_RESULTS = value
+#       def get_convert_results(self) -> bool:
+#           return self.CONVERT_RESULTS
+#   config = Config()
+#
+#   # usage:
+#   from sleeper_fantasy_api.config import config
+#   config.set_convert_results(False)
+#
+# That shape is rejected rather than implemented. `config` would be one
+# object shared by the entire process: two unrelated consumers importing
+# this package in the same interpreter -- a library and the app embedding
+# it, two threads, two requests handled by the same worker -- would fight
+# over one setting, and whichever set it last wins for everybody else,
+# silently. `get_season_projections(max_workers=...)` already fans requests
+# out across threads within a single client; a global that flips every
+# endpoint's return type (`LeagueModel` vs `dict`) out from under concurrent
+# callers is exactly the kind of spooky-action-at-a-distance bug that is
+# painful to track down, because the code that misbehaves is nowhere near
+# the code that flipped the setting.
+#
+# Instead, `convert_results` lives on `SleeperClient` itself
+# (`SleeperClient(convert_results=False)`), the object endpoints are already
+# constructed against. Endpoints read `self.client.convert_results` as their
+# default when a call doesn't specify one, and an explicit per-call
+# `convert_results=` argument still wins. That gives a single place to set
+# it once, no shared mutable state, and two clients in the same process can
+# disagree without either one silently overriding the other.
 
 CACHE_DURATION = timedelta(days=1)
 

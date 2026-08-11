@@ -1,6 +1,6 @@
-from typing import Dict, List, Optional, Union, cast
+from typing import Dict, List, Literal, Optional, Union, cast, overload
 
-from ..config import CONVERT_RESULTS, get_current_season
+from ..config import get_current_season
 from ..exceptions import SleeperAPIError, UserNotFoundError
 from ..models.draft import DraftModel
 from ..models.league import LeagueModel
@@ -11,12 +11,38 @@ from .draft_endpoint import DraftEndpoint
 class UserEndpoint:
     '''
     Class to interact with the user endpoint more easily
+
+    Every method's ``convert_results`` parameter defaults to the owning
+    `SleeperClient`'s `convert_results` setting when omitted (``None``) --
+    see issue #24. Pass it explicitly to override that default for a single
+    call.
     '''
     def __init__(self, client):
         self.client = client
 
+    @overload
     def get_user(
-        self, user_id: Optional[str] = None, username: Optional[str] = None, convert_results: bool = CONVERT_RESULTS
+        self, user_id: Optional[str] = None, username: Optional[str] = None, *, convert_results: Literal[True]
+    ) -> UserModel: ...
+    @overload
+    def get_user(
+        self, user_id: Optional[str], username: Optional[str], convert_results: Literal[True]
+    ) -> UserModel: ...
+    @overload
+    def get_user(
+        self, user_id: Optional[str] = None, username: Optional[str] = None, *, convert_results: Literal[False]
+    ) -> Dict: ...
+    @overload
+    def get_user(
+        self, user_id: Optional[str], username: Optional[str], convert_results: Literal[False]
+    ) -> Dict: ...
+    @overload
+    def get_user(
+        self, user_id: Optional[str] = None, username: Optional[str] = None, convert_results: Optional[bool] = None
+    ) -> Union[Dict, UserModel]: ...
+
+    def get_user(
+        self, user_id: Optional[str] = None, username: Optional[str] = None, convert_results: Optional[bool] = None
     ) -> Union[Dict, UserModel]:
         """
         Retrieve user information by user_id or username.
@@ -29,12 +55,17 @@ class UserEndpoint:
 
         :param user_id: The ID of the user (optional).
         :param username: The username of the user (optional).
+        :param convert_results: If omitted, uses the owning client's
+            `convert_results` default.
         :return: The user information as a dictionary.
         :raises SleeperAPIError: if neither user_id nor username is provided.
         :raises UserNotFoundError: if the given user_id/username does not exist.
         """
         if not user_id and not username:
             raise SleeperAPIError("You must provide either user_id or username.")
+
+        if convert_results is None:
+            convert_results = self.client.convert_results
 
         endpoint = f"user/{user_id}" if user_id else f"user/{username}"
         user_data = self.client.get(endpoint)
@@ -49,8 +80,29 @@ class UserEndpoint:
 
         return UserModel.from_json(user_data)
 
+    @overload
     def fetch_nfl_leagues(
-        self, user_id: str, season: Optional[int] = None, convert_results: bool = CONVERT_RESULTS
+        self, user_id: str, season: Optional[int] = None, *, convert_results: Literal[True]
+    ) -> List[LeagueModel]: ...
+    @overload
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int], convert_results: Literal[True]
+    ) -> List[LeagueModel]: ...
+    @overload
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int] = None, *, convert_results: Literal[False]
+    ) -> List[Dict]: ...
+    @overload
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int], convert_results: Literal[False]
+    ) -> List[Dict]: ...
+    @overload
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int] = None, convert_results: Optional[bool] = None
+    ) -> Union[List[Dict], List[LeagueModel]]: ...
+
+    def fetch_nfl_leagues(
+        self, user_id: str, season: Optional[int] = None, convert_results: Optional[bool] = None
     ) -> Union[List[Dict], List[LeagueModel]]:
         """
         Retrieve all of the leagues for a given user in a specific season.
@@ -71,10 +123,15 @@ class UserEndpoint:
             created, so pass season explicitly to fetch it; the validation
             below always allows whatever season Sleeper currently reports,
             even though the default prefers the previous one.
+        :param convert_results: If omitted, uses the owning client's
+            `convert_results` default.
         :return: A list of all of the leagues for the given year, or []
             if the user has none.
         :raises: SleeperAPIError if the requested season is out of range.
         """
+        if convert_results is None:
+            convert_results = self.client.convert_results
+
         default_season = get_current_season(self.client)
         season_to_fetch = season if season is not None else default_season
         sport = 'nfl'
@@ -108,12 +165,55 @@ class UserEndpoint:
 
         return [LeagueModel.from_json(league) for league in leagues_data]
 
+    @overload
     def get_all_drafts(
         self,
         user_id: str,
         sport: str = 'nfl',
         season: Optional[int] = None,
-        convert_results: bool = CONVERT_RESULTS,
+        *,
+        convert_results: Literal[True],
+    ) -> List[DraftModel]: ...
+    @overload
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str,
+        season: Optional[int],
+        convert_results: Literal[True],
+    ) -> List[DraftModel]: ...
+    @overload
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str = 'nfl',
+        season: Optional[int] = None,
+        *,
+        convert_results: Literal[False],
+    ) -> List[Dict]: ...
+    @overload
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str,
+        season: Optional[int],
+        convert_results: Literal[False],
+    ) -> List[Dict]: ...
+    @overload
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str = 'nfl',
+        season: Optional[int] = None,
+        convert_results: Optional[bool] = None,
+    ) -> Union[List[Dict], List[DraftModel]]: ...
+
+    def get_all_drafts(
+        self,
+        user_id: str,
+        sport: str = 'nfl',
+        season: Optional[int] = None,
+        convert_results: Optional[bool] = None,
     ) -> Union[List[Dict], List[DraftModel]]:
         """
         Retrieve all drafts for a user for a given season, default is the current season.
@@ -129,9 +229,14 @@ class UserEndpoint:
             "the current season" for a draft lookup means the one about to
             be played, not the one just finished. Pass season explicitly to
             override.
+        :param convert_results: If omitted, uses the owning client's
+            `convert_results` default.
         :return: A list of all of the draft models for the given season.
         :raises: SleeperAPIError if no drafts are found.
         """
+        if convert_results is None:
+            convert_results = self.client.convert_results
+
         season_to_fetch = (
             season if season is not None
             else get_current_season(self.client, prefer_previous_during_preseason=False)
@@ -149,6 +254,6 @@ class UserEndpoint:
         draft_ids = [draft['draft_id'] for draft in draft_data]
         draft_endpoint = DraftEndpoint(self.client)
 
-        # No convert_results passed to get_draft_by_id, so it uses the
-        # CONVERT_RESULTS default (True) -- always a DraftModel in practice.
-        return [cast(DraftModel, draft_endpoint.get_draft_by_id(draft_id)) for draft_id in draft_ids]
+        # get_draft_by_id() is called with convert_results=True explicitly,
+        # so the @overload on it already narrows this to DraftModel.
+        return [draft_endpoint.get_draft_by_id(draft_id, convert_results=True) for draft_id in draft_ids]

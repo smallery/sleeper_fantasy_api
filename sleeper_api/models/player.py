@@ -46,7 +46,7 @@ class PlayerModel:
         self.drop_count = drop_count
 
     @classmethod
-    def from_dict(cls, attributes: dict):
+    def from_dict(cls, attributes: dict) -> "PlayerModel":
         """
         Create a PlayerModel instance from a dictionary where the key is the player_id
         and the value is another dictionary containing player attributes.
@@ -70,7 +70,7 @@ class PlayerModel:
             _player_data = attributes  # Pass all other attributes to store in extra_attributes
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"<PlayerModel(name={self.name}, player_id={self.player_id}, age={self.age}, "
             f"team={self.team_abbr}, position={self.position})>"
@@ -91,7 +91,7 @@ class PlayerModel:
         # silently changing what this returns for that edge case.
         return self._player_data.get(attr_name)  # type: ignore[union-attr]
 
-    def get_injury_status(self):
+    def get_injury_status(self) -> Optional[str]:
         # returns info about injury
         pass
 

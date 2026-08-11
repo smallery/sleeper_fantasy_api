@@ -10,11 +10,12 @@ import logging
 import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from typing import Any, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
 
-from .config import BASE_URL
+from .config import BASE_URL, CONVERT_RESULTS
 from .exceptions import RateLimitError, SleeperAPIError
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,8 @@ class SleeperClient:
         self,
         timeout = 10,
         max_retries = 3,
-        initial_backoff = 1.0
+        initial_backoff = 1.0,
+        convert_results: bool = CONVERT_RESULTS,
     ):
         """
         Initialize the SleeperClient.
@@ -106,11 +108,23 @@ class SleeperClient:
         :param timeout: Timeout for requests in seconds.
         :param max_retries: Maximum retry attempts for rate-limited requests.
         :param initial_backoff: Initial backoff time in seconds for exponential backoff.
+        :param convert_results: Default for every endpoint method's own
+            ``convert_results`` parameter -- True (default) returns model
+            objects (e.g. ``LeagueModel``), False returns raw JSON
+            (``dict``/``list``). Set once here instead of passing
+            ``convert_results=`` to every call; a call that still passes it
+            explicitly overrides this client-level default for just that
+            call. See issue #24: this replaces a rejected module-global
+            design (see ``sleeper_api.config``) specifically so two clients
+            in one process -- or concurrent callers sharing one client, e.g.
+            ``get_season_projections(max_workers=...)`` -- can't silently
+            fight over one setting.
         """
         self.base_url = BASE_URL
         self.timeout = timeout
         self.max_retries = max_retries
         self.initial_backoff = initial_backoff
+        self.convert_results = convert_results
         self.session = self._create_session()
         self.session.headers.update({
             'Content-Type': 'application/json',
@@ -126,7 +140,7 @@ class SleeperClient:
         # made one more call.
         self._closed = False
 
-    def close(self):
+    def close(self) -> None:
         """
         Release the underlying HTTP session and its connection pool.
 
@@ -138,10 +152,10 @@ class SleeperClient:
         self.session.close()
         self._closed = True
 
-    def __enter__(self):
+    def __enter__(self) -> "SleeperClient":
         return self
 
-    def __exit__(self, exc_type, exc, tb):
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         # Always close on the way out, including when the with-block raised.
         # Returning False (not the exception) means we never suppress it --
         # closing the connection is a cleanup step, not error handling.
@@ -277,7 +291,7 @@ class SleeperClient:
 
             return self._handle_response(response)
 
-    def get(self, endpoint, params=None):
+    def get(self, endpoint, params=None) -> Any:
         """
         Make a GET request. Currently sleeper API only supports reading.
 
@@ -287,6 +301,6 @@ class SleeperClient:
         """
         return self._request('GET', endpoint, params=params)
 
-    def get_base_url(self):
+    def get_base_url(self) -> str:
         "Returns the base url"
         return self.base_url

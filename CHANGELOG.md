@@ -231,6 +231,76 @@ all three change the client/endpoint contract.
   doesn't require an sdist-time `MANIFEST.in` entry the way the removed
   patterns did.
 
+### BREAKING CHANGES
+- **`SleeperClient(convert_results=...)` replaces the module-level
+  `CONVERT_RESULTS` global as the supported way to set this once** (#24).
+  `config.py` carried a commented-out sketch of a mutable module-level
+  singleton (`config.set_convert_results(False)`) for this; it's rejected
+  rather than implemented -- one process-wide setting means two unrelated
+  consumers (a library and the app embedding it, two threads, or
+  `get_season_projections(max_workers=...)`'s own thread-pool fan-out) would
+  silently fight over it and flip each other's return types. `convert_results`
+  now lives on `SleeperClient` itself; every endpoint method reads
+  `self.client.convert_results` as its default when the argument is omitted,
+  and an explicit per-call `convert_results=` still overrides it. This read
+  is strict -- a `client`-like object missing the attribute raises
+  `AttributeError` on an omitted call rather than silently falling back to
+  `sleeper_api.config.CONVERT_RESULTS`, so a wrapper/proxy around
+  `SleeperClient` that forgets to forward the attribute fails loudly instead
+  of quietly returning the wrong type (see PR #31 review discussion). Not
+  breaking for the common case (nothing changes if you never touched
+  `CONVERT_RESULTS` or always passed `convert_results=` explicitly); breaking
+  for code that imported and mutated `sleeper_api.config.CONVERT_RESULTS`
+  directly (never a documented, supported way to change the default, and now
+  has no effect on client behavior), and for any hand-rolled client-like
+  object passed straight into an `*Endpoint(client)` constructor without a
+  `convert_results` attribute -- give it one (`client.convert_results = True`
+  or whatever the intended default is).
+
+### Added
+- **`sleeper_api` now ships a `py.typed` marker (PEP 561)** (#19). The
+  package was already fully annotated, but without this marker every type
+  checker (mypy, pyright) treated it as untyped and silently discarded all
+  of it -- a downstream project got `Any` for `league_endpoint.get_league_by_id(...)`
+  and a typo like `league.nmae` went uncaught. `py.typed` is declared under
+  `[tool.setuptools.package-data]` in `pyproject.toml` and verified present in
+  both the built wheel and the sdist (`python -m build`, then
+  `unzip -l dist/*.whl | grep py.typed` / same for the `.tar.gz`).
+- **`@typing.overload` on `convert_results` for every endpoint method that
+  has it** (#19 + #24, done together since `py.typed` makes the existing
+  `Union[List[Dict], List[Model]]` annotations a real downstream contract
+  instead of a formality). A literal `convert_results=True`/`False` call now
+  gets the precise return type (`List[RosterModel]` vs `List[Dict]`, etc.)
+  with no `cast()` needed, **whether passed by keyword or positionally**; an
+  omitted argument or a plain `bool` variable correctly widens to the
+  `Union`, since the real return type in that case depends on the client's
+  configured default and isn't knowable statically. Applied to every
+  `convert_results`-bearing method across `LeagueEndpoint`, `UserEndpoint`,
+  `DraftEndpoint`, `PlayerEndpoint`, and `NFLEndpoint` (`ProjectionsEndpoint`
+  has no `convert_results` parameter, so nothing to overload there).
+  Methods with optional parameters ahead of `convert_results` (`get_user`,
+  `fetch_nfl_leagues`, `get_all_drafts`, `get_drafts_by_user`,
+  `get_trending_players`, `get_all_players`, `search_players`,
+  `get_schedule`) carry a second, fully-positional overload per literal
+  alongside the keyword-friendly one, so a call supplying every argument
+  positionally (matching the pre-existing runtime signature) narrows exactly
+  as well as a keyword call does -- caught in review (credit to `@codex`'s
+  pass on this PR) after the first version of these overloads made the
+  literal narrow only for keyword calls, silently falling through to the
+  wide `Union` for positional ones. Verified against a scratch consumer
+  outside the package, run through mypy with the built wheel installed --
+  see the PR description for the full before/after mypy output (revealed
+  types go from `Any` everywhere to precise model/dict types pre-`py.typed`;
+  a deliberate typo goes from silently ignored to a real `[attr-defined]`
+  error; and every overloaded method's positional-literal call narrows
+  correctly post-fix, where several methods previously fell back to a wide
+  `Union`).
+- README: "Configuring `convert_results`" section documenting the new
+  client-level default, the per-call override, and why the rejected global
+  sketch in `config.py` isn't the shape this took. Removed the "Planned
+  Features" bullet for this (#24 supersedes it) and added the `py.typed` /
+  per-client `convert_results` bullets to Features.
+
 ## [0.4.0] - 2026-08-10
 
 ### Changed
