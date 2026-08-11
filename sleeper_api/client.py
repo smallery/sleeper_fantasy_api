@@ -79,6 +79,18 @@ class SleeperClient:
     The session is safe to share across threads for the read-only GETs this
     client makes; the connection pool is sized to allow concurrent fan-out
     (see ``ProjectionsEndpoint.get_season_projections(max_workers=...)``).
+
+    Lifecycle: the client owns a ``requests.Session`` (and its connection
+    pool) for as long as it is alive, and nothing closes that automatically
+    on a deterministic schedule -- in CPython it happens whenever the garbage
+    collector gets to it, which can be arbitrarily late once the client is
+    captured by a closure or held as a module-level singleton. Use it as a
+    context manager for short-lived usage (scripts, tests, one-off calls), or
+    call :meth:`close` explicitly when a long-lived client (e.g. one held for
+    a service's lifetime) is done. See the README for both patterns -- the
+    long-lived pattern is the one to reach for when performance matters, since
+    a warm connection pool is what makes concurrent fan-out
+    (``max_workers=...``) fast.
     """
     def __init__(
         self,
@@ -108,6 +120,37 @@ class SleeperClient:
 
         if self.api_key:
             self.session.headers.update({'Authorization': f'Bearer {self.api_key}'})
+
+        # Tracked separately from the session: requests.Session.close() only
+        # clears the underlying connection pools, it does not stop the
+        # session from being used again -- a closed adapter happily opens a
+        # fresh socket on the next request. Without this flag, close() would
+        # be a performance hint at best, silently defeating its own purpose
+        # (and the caller's intent to release resources) the moment anything
+        # made one more call.
+        self._closed = False
+
+    def close(self):
+        """
+        Release the underlying HTTP session and its connection pool.
+
+        Idempotent -- calling this more than once (or on a client that was
+        never used) is a no-op after the first call.
+        """
+        if self._closed:
+            return
+        self.session.close()
+        self._closed = True
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        # Always close on the way out, including when the with-block raised.
+        # Returning False (not the exception) means we never suppress it --
+        # closing the connection is a cleanup step, not error handling.
+        self.close()
+        return False
 
     def _create_session(self) -> requests.Session:
         """
@@ -160,7 +203,19 @@ class SleeperClient:
         :param params: URL parameters.
         :param data: Request payload for POST/PUT requests.
         :return: Parsed JSON response.
+        :raises RuntimeError: If the client has been closed. requests.Session
+            does not enforce this itself -- a closed adapter just opens a new
+            socket on the next call, silently undoing close() -- so this
+            client raises explicitly rather than let a closed client keep
+            working by accident (e.g. after a service thinks it has shut
+            its client down).
         """
+        if self._closed:
+            raise RuntimeError(
+                "SleeperClient is closed; create a new client instead of "
+                "reusing one after close() or exiting its `with` block."
+            )
+
         url = f'{self.base_url}{endpoint}'
         backoff = self.initial_backoff
 

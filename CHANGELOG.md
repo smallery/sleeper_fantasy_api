@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`SleeperClient.close()` and context-manager support (`__enter__`/`__exit__`).**
+  The client owns a `requests.Session` and its connection pool with no way to
+  release either -- sockets stayed open until garbage collection, which is
+  non-deterministic in CPython once the client is captured by a closure or
+  held as a module-level singleton (the pattern this library recommends for
+  connection reuse, and the one `get_season_projections(max_workers=...)`
+  depends on for its speedup). `__exit__` always calls `close()` and returns
+  `False`, so exceptions raised inside a `with` block still propagate.
+  `close()` is idempotent. Calling a method on a closed client now raises
+  `RuntimeError` instead of silently reopening a connection --
+  `requests.Session` itself does not refuse reuse after `close()`, so this
+  guards against a client that's assumed to be released still working by
+  accident. Purely additive; no existing usage is affected. See the README's
+  "Client Lifecycle" section for the short-lived (`with`) vs. long-lived
+  (hold one client, `close()` on shutdown) patterns.
+
 ## [0.4.0] - 2026-08-10
 
 ### Changed

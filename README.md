@@ -92,6 +92,56 @@ league = league_endpoint.get_league_by_id(leagues[0].league_id)
 print(f"League: {league.name}")
 ```
 
+### Client Lifecycle: Context Manager vs. Long-Lived Client
+
+`SleeperClient` owns a `requests.Session`, which owns a connection pool.
+Nothing closes that automatically on a predictable schedule -- in CPython it
+happens whenever the garbage collector gets around to it, which can be
+arbitrarily late once the client is captured by a closure or held as a
+module-level singleton. There are two supported patterns, and which one you
+want depends on how long the client sticks around:
+
+**Short-lived usage (scripts, one-off calls, tests): use it as a context
+manager.** This guarantees the session -- and its sockets -- are released as
+soon as you're done, even if an exception is raised inside the block.
+
+```python
+from sleeper_api.client import SleeperClient
+from sleeper_api.endpoints.user_endpoint import UserEndpoint
+
+with SleeperClient() as client:
+    user = UserEndpoint(client).get_user("your_username")
+    print(f"User: {user.display_name}")
+# session and connection pool are closed here, deterministically
+```
+
+**Long-lived usage (a service, a web app, anything that makes many calls over
+its lifetime): create one client and hold it for as long as the app runs,
+then call `close()` on shutdown.** Do *not* wrap every call in `with` here --
+a fresh `SleeperClient()` per request throws away the connection pool each
+time, and a TLS handshake to Sleeper costs roughly 0.3s versus roughly 0.03s
+for a request that reuses a warm connection. This is also why
+`get_season_projections(max_workers=...)` (see below) is fast: it depends on
+a pool of already-open connections to fan out across, not on opening a new
+one per request.
+
+```python
+# module-level singleton, or held on an app/service object -- either way,
+# constructed once and reused across many requests
+client = SleeperClient()
+
+def handle_request(username):
+    return UserEndpoint(client).get_user(username)
+
+# on application shutdown:
+client.close()
+```
+
+Calling a method on a closed client raises `RuntimeError` rather than
+silently reopening a connection -- `requests.Session` does not itself refuse
+reuse after `close()`, so this client checks explicitly to keep the lifecycle
+honest. `close()` itself is idempotent; calling it more than once is safe.
+
 ### Advanced Usage: Player Projections
 
 Access weekly player projections and calculate team totals:
