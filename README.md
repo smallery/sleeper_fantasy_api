@@ -108,12 +108,26 @@ else:
 
 ### Configuring `convert_results`
 
-Every endpoint method that returns Sleeper data takes an optional
+Most endpoint methods that return Sleeper data take an optional
 `convert_results: bool` argument: `True` (the default) returns model objects
 (`LeagueModel`, `RosterModel`, etc.), `False` returns raw JSON
 (`dict`/`list`). Previously the only way to change the default was a
 module-level `CONVERT_RESULTS` constant with no supported way to override it
 for just one client -- every call had to pass `convert_results=` itself.
+
+**Not every method is configurable**, so don't assume a client-wide `False`
+makes everything a `dict`. The exceptions, in both directions:
+
+| Method | Always returns | Why |
+|---|---|---|
+| `LeagueEndpoint.get_league_by_id()` | `LeagueModel` | Single named resource; the model *is* the return value |
+| `LeagueEndpoint.get_complete_league_data()` | `dict` of models | A composed convenience result, not one endpoint's payload |
+| `PlayerEndpoint.get_player()` / `.get_players_by_team()` | `PlayerModel` | Built from the cached player map rather than a per-call fetch |
+| every `ProjectionsEndpoint` method | raw `dict` | There is no projection model -- projections are returned as-is |
+
+Those signatures have no `convert_results` parameter at all, so passing one is
+a `TypeError` (and, with `py.typed` shipped, a type error your checker will
+catch before you run it).
 
 Set it once on the client instead:
 
@@ -121,7 +135,8 @@ Set it once on the client instead:
 from sleeper_api.client import SleeperClient
 from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
 
-# This client's endpoints default to raw JSON everywhere.
+# Every configurable endpoint on this client now defaults to raw JSON
+# (see the exceptions table above for the methods that don't take the flag).
 client = SleeperClient(convert_results=False)
 league_endpoint = LeagueEndpoint(client)
 
