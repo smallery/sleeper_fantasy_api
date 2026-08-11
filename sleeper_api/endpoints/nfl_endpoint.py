@@ -6,7 +6,7 @@ Note: These endpoints are undocumented and may change without notice.
 """
 import logging
 from datetime import datetime
-from typing import List, Union
+from typing import List, Literal, Optional, Union, overload
 
 from ..config import CONVERT_RESULTS
 from ..exceptions import SleeperAPIError
@@ -27,6 +27,11 @@ class NFLEndpoint:
     - Team depth charts
     - NFL schedules (regular season and postseason)
 
+    Every method's ``convert_results`` parameter defaults to the owning
+    `SleeperClient`'s `convert_results` setting when omitted (``None``) --
+    see issue #24. Pass it explicitly to override that default for a single
+    call.
+
     Note: These are undocumented endpoints and may change without notice.
     """
 
@@ -39,10 +44,19 @@ class NFLEndpoint:
         """
         self.client = client
 
+    @overload
+    def get_team_depth_chart(self, team: str, convert_results: Literal[True]) -> TeamDepthChartModel: ...
+    @overload
+    def get_team_depth_chart(self, team: str, convert_results: Literal[False]) -> dict: ...
+    @overload
+    def get_team_depth_chart(
+        self, team: str, convert_results: Optional[bool] = None
+    ) -> Union[TeamDepthChartModel, dict]: ...
+
     def get_team_depth_chart(
         self,
         team: str,
-        convert_results: bool = CONVERT_RESULTS
+        convert_results: Optional[bool] = None
     ) -> Union[TeamDepthChartModel, dict]:
         """
         Fetch the depth chart for a specific NFL team.
@@ -54,6 +68,7 @@ class NFLEndpoint:
         Args:
             team: NFL team abbreviation (e.g., 'SF', 'KC', 'GB', 'NE')
             convert_results: If True, return TeamDepthChartModel. If False, return raw dict.
+                If omitted, uses the owning client's `convert_results` default.
 
         Returns:
             TeamDepthChartModel if convert_results=True, otherwise dict
@@ -71,6 +86,9 @@ class NFLEndpoint:
         if not team or not isinstance(team, str):
             raise ValueError("Team abbreviation must be a non-empty string")
 
+        if convert_results is None:
+            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
+
         # Team abbreviations are typically 2-3 uppercase letters
         team = team.upper()
 
@@ -87,11 +105,24 @@ class NFLEndpoint:
 
         return TeamDepthChartModel.from_dict(depth_chart_data, team=team)
 
+    @overload
+    def get_schedule(
+        self, year: int, postseason: bool = False, *, convert_results: Literal[True]
+    ) -> NFLScheduleModel: ...
+    @overload
+    def get_schedule(
+        self, year: int, postseason: bool = False, *, convert_results: Literal[False]
+    ) -> List[dict]: ...
+    @overload
+    def get_schedule(
+        self, year: int, postseason: bool = False, convert_results: Optional[bool] = None
+    ) -> Union[NFLScheduleModel, List[dict]]: ...
+
     def get_schedule(
         self,
         year: int,
         postseason: bool = False,
-        convert_results: bool = CONVERT_RESULTS
+        convert_results: Optional[bool] = None
     ) -> Union[NFLScheduleModel, List[dict]]:
         """
         Fetch the NFL schedule for a specific season.
@@ -103,6 +134,7 @@ class NFLEndpoint:
             year: NFL season year (must be between 2009 and current year)
             postseason: If True, fetch postseason schedule. If False, fetch regular season.
             convert_results: If True, return NFLScheduleModel. If False, return raw list.
+                If omitted, uses the owning client's `convert_results` default.
 
         Returns:
             NFLScheduleModel if convert_results=True, otherwise List[dict]
@@ -118,6 +150,9 @@ class NFLEndpoint:
             >>> sf_games = schedule.get_games_by_team('SF')
         """
         current_year = datetime.now().year
+
+        if convert_results is None:
+            convert_results = getattr(self.client, "convert_results", CONVERT_RESULTS)
 
         # Validate year
         if year < MIN_SCHEDULE_YEAR:
@@ -146,10 +181,19 @@ class NFLEndpoint:
 
         return NFLScheduleModel.from_list(schedule_data, year=year, season_type=season_type)
 
+    @overload
+    def get_regular_season_schedule(self, year: int, *, convert_results: Literal[True]) -> NFLScheduleModel: ...
+    @overload
+    def get_regular_season_schedule(self, year: int, *, convert_results: Literal[False]) -> List[dict]: ...
+    @overload
+    def get_regular_season_schedule(
+        self, year: int, convert_results: Optional[bool] = None
+    ) -> Union[NFLScheduleModel, List[dict]]: ...
+
     def get_regular_season_schedule(
         self,
         year: int,
-        convert_results: bool = CONVERT_RESULTS
+        convert_results: Optional[bool] = None
     ) -> Union[NFLScheduleModel, List[dict]]:
         """
         Convenience method to fetch the regular season schedule.
@@ -157,16 +201,26 @@ class NFLEndpoint:
         Args:
             year: NFL season year
             convert_results: If True, return NFLScheduleModel. If False, return raw list.
+                If omitted, uses the owning client's `convert_results` default.
 
         Returns:
             NFLScheduleModel if convert_results=True, otherwise List[dict]
         """
         return self.get_schedule(year, postseason=False, convert_results=convert_results)
 
+    @overload
+    def get_postseason_schedule(self, year: int, *, convert_results: Literal[True]) -> NFLScheduleModel: ...
+    @overload
+    def get_postseason_schedule(self, year: int, *, convert_results: Literal[False]) -> List[dict]: ...
+    @overload
+    def get_postseason_schedule(
+        self, year: int, convert_results: Optional[bool] = None
+    ) -> Union[NFLScheduleModel, List[dict]]: ...
+
     def get_postseason_schedule(
         self,
         year: int,
-        convert_results: bool = CONVERT_RESULTS
+        convert_results: Optional[bool] = None
     ) -> Union[NFLScheduleModel, List[dict]]:
         """
         Convenience method to fetch the postseason schedule.
@@ -174,6 +228,7 @@ class NFLEndpoint:
         Args:
             year: NFL season year
             convert_results: If True, return NFLScheduleModel. If False, return raw list.
+                If omitted, uses the owning client's `convert_results` default.
 
         Returns:
             NFLScheduleModel if convert_results=True, otherwise List[dict]

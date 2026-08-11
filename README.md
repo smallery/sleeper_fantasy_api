@@ -17,6 +17,7 @@ H/T to other repos who created similar functions before me:
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
+  - [Configuring `convert_results`](#configuring-convert_results)
   - [Error Handling](#error-handling)
   - [Season Defaults: How "Current Season" Is Resolved](#season-defaults-how-current-season-is-resolved)
 - [Endpoints](#endpoints)
@@ -43,9 +44,11 @@ This project simplifies accessing the Sleeper API, allowing users to easily fetc
 - **Retry Logic**: Exponential backoff for rate limits and network errors
 - **NFL State**: Get current NFL season, week, and game state
 - **Scoring Type Detection**: Automatically detect PPR/Half-PPR/Standard scoring
-
-### Planned Features
-- Custom setting of CONVERT_RESULT global variable by user
+- **PEP 561 typed**: Ships a `py.typed` marker, so type checkers (mypy, pyright, etc.)
+  see this package's real annotations across the boundary instead of treating
+  everything as `Any`.
+- **Per-client `convert_results`**: Set once on `SleeperClient(convert_results=...)`
+  instead of passing it to every call. See [Configuring `convert_results`](#configuring-convert_results).
 
 ## Installation
 To install locally, follow these steps:
@@ -102,6 +105,57 @@ else:
         league = league_endpoint.get_league_by_id(leagues[0].league_id)
         print(f"League: {league.name}")
 ```
+
+### Configuring `convert_results`
+
+Every endpoint method that returns Sleeper data takes an optional
+`convert_results: bool` argument: `True` (the default) returns model objects
+(`LeagueModel`, `RosterModel`, etc.), `False` returns raw JSON
+(`dict`/`list`). Previously the only way to change the default was a
+module-level `CONVERT_RESULTS` constant with no supported way to override it
+for just one client -- every call had to pass `convert_results=` itself.
+
+Set it once on the client instead:
+
+```python
+from sleeper_api.client import SleeperClient
+from sleeper_api.endpoints.league_endpoint import LeagueEndpoint
+
+# This client's endpoints default to raw JSON everywhere.
+client = SleeperClient(convert_results=False)
+league_endpoint = LeagueEndpoint(client)
+
+rosters = league_endpoint.get_rosters(league_id)  # -> List[dict], no convert_results needed
+```
+
+A per-call `convert_results=` argument still overrides the client's default
+for that one call:
+
+```python
+# Client defaults to raw JSON, but this one call wants model objects.
+rosters = league_endpoint.get_rosters(league_id, convert_results=True)  # -> List[RosterModel]
+```
+
+**Why not a global?** `sleeper_api/config.py` used to carry a commented-out
+sketch of a mutable module-level singleton (`config.set_convert_results(False)`)
+for this. That shape was deliberately rejected: it is one setting shared by
+the entire process, so two unrelated consumers -- a library and the app
+embedding it, two threads, or `get_season_projections(max_workers=...)`'s own
+thread-pool fan-out -- would fight over it, and whichever set it last wins
+for everyone else, silently changing return types out from under the other.
+Putting `convert_results` on `SleeperClient` instead means two clients (or a
+whole thread pool sharing one client) get a return type that only depends on
+what was actually asked for.
+
+**Typing**: `convert_results` changes the return *type*, not just the value
+(`LeagueModel` vs `dict`). The most-used endpoint methods carry
+`@typing.overload`s so that a literal `convert_results=True`/`False` gets you
+the precise type back (no `cast()` needed on your end), while an omitted
+argument or a plain `bool` variable correctly widens to the `Union` -- the
+actual type in that case genuinely depends on the client's configured
+default, which isn't knowable statically. Combined with the `py.typed`
+marker this package ships (see Advanced Features above), this is checked by
+mypy on your side, not just documented here.
 
 ### Error Handling
 

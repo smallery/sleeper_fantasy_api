@@ -231,6 +231,55 @@ all three change the client/endpoint contract.
   doesn't require an sdist-time `MANIFEST.in` entry the way the removed
   patterns did.
 
+### BREAKING CHANGES
+- **`SleeperClient(convert_results=...)` replaces the module-level
+  `CONVERT_RESULTS` global as the supported way to set this once** (#24).
+  `config.py` carried a commented-out sketch of a mutable module-level
+  singleton (`config.set_convert_results(False)`) for this; it's rejected
+  rather than implemented -- one process-wide setting means two unrelated
+  consumers (a library and the app embedding it, two threads, or
+  `get_season_projections(max_workers=...)`'s own thread-pool fan-out) would
+  silently fight over it and flip each other's return types. `convert_results`
+  now lives on `SleeperClient` itself; every endpoint method reads
+  `self.client.convert_results` as its default when the argument is omitted,
+  and an explicit per-call `convert_results=` still overrides it. Not breaking
+  for the common case (nothing changes if you never touched `CONVERT_RESULTS`
+  or always passed `convert_results=` explicitly); breaking only for code that
+  imported and mutated `sleeper_api.config.CONVERT_RESULTS` directly, which
+  was never a documented, supported way to change the default and has no
+  effect on client behavior now.
+
+### Added
+- **`sleeper_api` now ships a `py.typed` marker (PEP 561)** (#19). The
+  package was already fully annotated, but without this marker every type
+  checker (mypy, pyright) treated it as untyped and silently discarded all
+  of it -- a downstream project got `Any` for `league_endpoint.get_league_by_id(...)`
+  and a typo like `league.nmae` went uncaught. `py.typed` is declared under
+  `[tool.setuptools.package-data]` in `pyproject.toml` and verified present in
+  both the built wheel and the sdist (`python -m build`, then
+  `unzip -l dist/*.whl | grep py.typed` / same for the `.tar.gz`).
+- **`@typing.overload` on `convert_results` for the most-used endpoint
+  methods** (#19 + #24, done together since `py.typed` makes the existing
+  `Union[List[Dict], List[Model]]` annotations a real downstream contract
+  instead of a formality). A literal `convert_results=True`/`False` call now
+  gets the precise return type (`List[RosterModel]` vs `List[Dict]`, etc.)
+  with no `cast()` needed; an omitted argument or a plain `bool` variable
+  correctly widens to the `Union`, since the real return type in that case
+  depends on the client's configured default and isn't knowable statically.
+  Applied to every `convert_results`-bearing method across
+  `LeagueEndpoint`, `UserEndpoint`, `DraftEndpoint`, `PlayerEndpoint`, and
+  `NFLEndpoint` (`ProjectionsEndpoint` has no `convert_results` parameter, so
+  nothing to overload there). Verified against a scratch consumer outside the
+  package, run through mypy with the built wheel installed -- see the PR
+  description for the full before/after mypy output (revealed types go from
+  `Any` everywhere to precise model/dict types, and a deliberate typo goes
+  from silently ignored to a real `[attr-defined]` error).
+- README: "Configuring `convert_results`" section documenting the new
+  client-level default, the per-call override, and why the rejected global
+  sketch in `config.py` isn't the shape this took. Removed the "Planned
+  Features" bullet for this (#24 supersedes it) and added the `py.typed` /
+  per-client `convert_results` bullets to Features.
+
 ## [0.4.0] - 2026-08-10
 
 ### Changed
