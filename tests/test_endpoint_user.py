@@ -188,6 +188,49 @@ class TestUserEndpoint(unittest.TestCase):
             self.endpoint.get_all_drafts(user_id="12345678")
         self.client.get.assert_called_with("user/12345678/drafts/nfl/2026")
 
+    def test_get_all_drafts_converts_not_yet_conducted_drafts_during_preseason(self):
+        # Regression test for PR #29 review Finding 1 on commit 7306e5a:
+        # defaulting to the upcoming season during preseason (Finding 2) is
+        # only a real fix if the upcoming season's drafts can actually be
+        # converted -- they haven't been conducted yet, so Sleeper returns
+        # draft_order=null, which DraftModel.from_json() used to reject as a
+        # missing required field. That turned "wrong season" into "no
+        # results at all", which is not an improvement. This exercises the
+        # full get_all_drafts() -> get_draft_by_id() -> DraftModel.from_json()
+        # chain end to end with a realistic 'pre_draft' payload.
+        pending_draft_list_entry = {
+            "draft_id": "1389688714547974145",
+            "league_id": "1389688714547974144",
+            "season": "2026",
+            "season_type": "regular",
+            "status": "pre_draft",
+            "draft_order": None,
+            "sport": "nfl",
+            "type": "snake",
+            "start_time": None,
+        }
+        pending_draft_full = dict(pending_draft_list_entry)  # draft/{id} shape used by get_draft_by_id
+
+        def fake_get(endpoint, params=None):
+            if endpoint == "user/12345678/drafts/nfl/2026":
+                return [pending_draft_list_entry]
+            if endpoint == f"draft/{pending_draft_list_entry['draft_id']}":
+                return pending_draft_full
+            raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+        self.mock_get_current_season.side_effect = (
+            lambda client, prefer_previous_during_preseason=True: 2026
+        )
+        self.client.get.side_effect = fake_get
+
+        drafts = self.endpoint.get_all_drafts(user_id="12345678")
+
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0].draft_id, "1389688714547974145")
+        self.assertEqual(drafts[0].status, "pre_draft")
+        # draft_order=null converts to an empty dict rather than raising.
+        self.assertEqual(drafts[0].draft_order, {})
+
 
 if __name__ == '__main__':
     unittest.main()

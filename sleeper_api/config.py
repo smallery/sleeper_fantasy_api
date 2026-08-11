@@ -72,7 +72,7 @@ _season_cache_lock = threading.Lock()
 _season_cache: Dict[str, Any] = {}
 
 
-def _clock_estimate_season(now=None):
+def _clock_estimate_season(now=None, prefer_previous_during_preseason=True):
     """
     Best-effort season estimate from the wall clock.
 
@@ -83,15 +83,27 @@ def _clock_estimate_season(now=None):
 
     An NFL season is labelled by the year it starts, and the new league
     year's games begin in September, so a date from September onward belongs
-    to the season starting that same year; January through August belong to
-    the season that started the previous September.
+    to the season starting that same year -- no ambiguity, since real
+    /state/nfl would not report "pre" in that window either. January through
+    August is the ambiguous window: real /state/nfl would typically report
+    season_type=="pre" there (reporting the *upcoming* season), so this
+    honors the same ``prefer_previous_during_preseason`` policy the caller
+    asked get_current_season() for -- without it, the fallback silently
+    ignored the request and always returned last season, which reintroduces
+    exactly the bug the caller was trying to avoid via ``False`` (see PR #29
+    review, Finding 2 on commit 7306e5a).
 
     :param now: Override for the current time (used by tests). Defaults to
         ``datetime.now()``.
+    :param prefer_previous_during_preseason: Mirrors the same-named
+        parameter on :func:`get_current_season`. Only matters January
+        through August; ignored from September onward.
     :return: int season estimate.
     """
     now = now or datetime.now()
-    return now.year if now.month >= 9 else now.year - 1
+    if now.month >= 9:
+        return now.year
+    return now.year - 1 if prefer_previous_during_preseason else now.year
 
 
 def _resolve_via_state_endpoint(client):
@@ -171,7 +183,15 @@ def get_current_season(client, prefer_previous_during_preseason=True):
             "Could not resolve the current NFL season from /state/nfl (%s); "
             "falling back to a clock-based estimate.", exc
         )
-        return _clock_estimate_season()
+        # Thread the caller's policy through to the fallback too -- without
+        # this, an outage silently ignored prefer_previous_during_preseason
+        # and always returned last season, which (a) reintroduces the
+        # wrong-season draft bug for callers that explicitly opted out via
+        # False, and (b) can make fetch_nfl_leagues() reject an explicit
+        # upcoming-season request as beyond its (stale, previous-year)
+        # fallback upper bound even though the leagues endpoint itself is
+        # healthy.
+        return _clock_estimate_season(prefer_previous_during_preseason=prefer_previous_during_preseason)
 
     if prefer_previous_during_preseason and season_type == "pre":
         return season - 1

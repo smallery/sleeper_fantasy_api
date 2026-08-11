@@ -50,6 +50,47 @@ class TestDraftEndpoint(unittest.TestCase):
             self.endpoint.get_drafts_by_user(user_id="12345678")
             self.client.get.assert_called_with("user/12345678/drafts/nfl/2026")
 
+    def test_get_drafts_by_user_converts_not_yet_conducted_drafts_during_preseason(self):
+        # Regression test for PR #29 review Finding 1 on commit 7306e5a:
+        # defaulting to the upcoming season during preseason (Finding 2) is
+        # only a real fix if the upcoming season's drafts can actually be
+        # converted -- they haven't been conducted yet, so Sleeper returns
+        # draft_order=null, which DraftModel.from_json() used to reject as a
+        # missing required field. That turned "wrong season" into "no
+        # results at all". Exercises the full get_drafts_by_user() ->
+        # get_draft_by_id() -> DraftModel.from_json() chain end to end with
+        # a realistic 'pre_draft' payload.
+        pending_draft = {
+            "draft_id": "1389688714547974145",
+            "league_id": "1389688714547974144",
+            "season": "2026",
+            "season_type": "regular",
+            "status": "pre_draft",
+            "draft_order": None,
+            "sport": "nfl",
+            "type": "snake",
+            "start_time": None,
+        }
+
+        def fake_get(endpoint, params=None):
+            if endpoint == "user/12345678/drafts/nfl/2026":
+                return [pending_draft]
+            if endpoint == f"draft/{pending_draft['draft_id']}":
+                return pending_draft
+            raise AssertionError(f"unexpected endpoint: {endpoint}")
+
+        with patch(
+            "sleeper_api.endpoints.draft_endpoint.get_current_season",
+            side_effect=lambda client, prefer_previous_during_preseason=True: 2026,
+        ):
+            self.client.get.side_effect = fake_get
+            drafts = self.endpoint.get_drafts_by_user(user_id="12345678")
+
+        self.assertEqual(len(drafts), 1)
+        self.assertEqual(drafts[0].draft_id, "1389688714547974145")
+        self.assertEqual(drafts[0].status, "pre_draft")
+        self.assertEqual(drafts[0].draft_order, {})
+
     def test_get_drafts_by_user_explicit_season_skips_resolution(self):
         with patch(
             "sleeper_api.endpoints.draft_endpoint.get_current_season"

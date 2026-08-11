@@ -34,6 +34,30 @@ class TestClockEstimateSeason(unittest.TestCase):
     def test_august_still_belongs_to_the_previous_season(self):
         self.assertEqual(config._clock_estimate_season(datetime(2026, 8, 31)), 2025)
 
+    def test_prefer_previous_during_preseason_false_returns_upcoming_season(self):
+        # Regression test for PR #29 review Finding 2 on commit 7306e5a: the
+        # clock fallback used to ignore this flag entirely and always
+        # returned the previous season. Before September, real /state/nfl
+        # would typically report season_type=="pre" (naming the *upcoming*
+        # season), so the clock estimate needs the same opt-out.
+        self.assertEqual(
+            config._clock_estimate_season(datetime(2026, 1, 15), prefer_previous_during_preseason=False),
+            2026,
+        )
+        self.assertEqual(
+            config._clock_estimate_season(datetime(2026, 8, 31), prefer_previous_during_preseason=False),
+            2026,
+        )
+
+    def test_prefer_previous_during_preseason_flag_is_moot_once_the_season_starts(self):
+        # No preseason ambiguity once real /state/nfl would report
+        # "regular"/"post" -- both readings agree from September onward.
+        self.assertEqual(config._clock_estimate_season(datetime(2026, 11, 1)), 2026)
+        self.assertEqual(
+            config._clock_estimate_season(datetime(2026, 11, 1), prefer_previous_during_preseason=False),
+            2026,
+        )
+
 
 class TestGetCurrentSeason(unittest.TestCase):
     """
@@ -85,6 +109,27 @@ class TestGetCurrentSeason(unittest.TestCase):
             result = config.get_current_season(self.client)
         self.assertEqual(result, 1999)
         self.assertTrue(any("state/nfl" in entry for entry in logs.output))
+
+    @patch("sleeper_api.config._clock_estimate_season", return_value=1999)
+    def test_fallback_threads_prefer_previous_during_preseason_through(self, mock_estimate):
+        # Regression test for PR #29 review Finding 2 on commit 7306e5a: the
+        # early-return fallback used to call _clock_estimate_season() with
+        # no arguments at all, silently dropping whatever policy the caller
+        # asked get_current_season() for. During a /state/nfl outage this
+        # reintroduced exactly the wrong-season-draft bug Finding 2 fixed
+        # (callers that opted out via False got the previous season anyway),
+        # and could make fetch_nfl_leagues() reject an explicit
+        # upcoming-season request as beyond a stale fallback upper bound.
+        self.client.get.side_effect = SleeperAPIError("boom")
+
+        with self.assertLogs("sleeper_api.config", level="WARNING"):
+            config.get_current_season(self.client, prefer_previous_during_preseason=False)
+        mock_estimate.assert_called_once_with(prefer_previous_during_preseason=False)
+
+        mock_estimate.reset_mock()
+        with self.assertLogs("sleeper_api.config", level="WARNING"):
+            config.get_current_season(self.client)  # default True
+        mock_estimate.assert_called_once_with(prefer_previous_during_preseason=True)
 
     def test_falls_back_when_response_is_missing_season_key(self):
         # Malformed/unexpected payload shape should degrade the same way an

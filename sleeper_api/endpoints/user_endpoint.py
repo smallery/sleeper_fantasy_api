@@ -84,10 +84,15 @@ class UserEndpoint:
         # season=<the season Sleeper just told us about> gets rejected before
         # the request is even made, even though leagues for it can already
         # exist. (See PR #29 review discussion.)
-        latest_reported_season = get_current_season(self.client, prefer_previous_during_preseason=False)
+        latest_reported_season = get_current_season(
+            self.client, prefer_previous_during_preseason=False
+        )
 
         if season_to_fetch < 2015 or season_to_fetch > latest_reported_season:
-            raise SleeperAPIError(f"Sleeper API only has data from the 2015 season through the {latest_reported_season} season.")
+            raise SleeperAPIError(
+                f"Sleeper API only has data from the 2015 season "
+                f"through the {latest_reported_season} season."
+            )
 
         endpoint = f"user/{user_id}/leagues/{sport}/{season_to_fetch}"
         leagues_data = self.client.get(endpoint)

@@ -190,6 +190,27 @@ all three change the client/endpoint contract.
   `prefer_previous_during_preseason` opt-out) elsewhere.
 
 ### Fixed
+- **`DraftModel.from_json()` no longer rejects a not-yet-conducted draft.**
+  It required `draft_order` to be present and non-null, but Sleeper
+  legitimately returns `draft_order: null` for any draft in `pre_draft`
+  status -- the pick order isn't assigned until the draft actually starts.
+  This mattered a lot once `get_all_drafts()`/`get_drafts_by_user()` started
+  defaulting to the *upcoming* (and therefore often not-yet-drafted) season
+  during preseason (see above): the corrected season default would
+  otherwise still raise a `TypeError` instead of returning drafts, turning
+  "returns the wrong season's drafts" into "returns nothing at all" -- not
+  an improvement. `draft_order` is now genuinely optional on `DraftModel`
+  (defaults to `{}`), reflecting the real API contract rather than casting
+  a `None` through a required-field type.
+- **`get_current_season()`'s clock-based fallback now honors
+  `prefer_previous_during_preseason`.** If `/state/nfl` is unreachable
+  before September, the fallback used to always return the previous season
+  regardless of what was asked for -- silently reintroducing the
+  wrong-season-draft behavior for callers that explicitly opted out via
+  `prefer_previous_during_preseason=False`, and able to make
+  `fetch_nfl_leagues()` reject an explicit upcoming-season request as
+  beyond a stale fallback bound even when the leagues endpoint itself was
+  healthy.
 - **`get_trending_players()` now URL-encodes its query parameters** via
   `SleeperClient.get()`'s existing `params=` support, instead of
   hand-interpolating `lookback_hours`/`limit` into the endpoint path with no
