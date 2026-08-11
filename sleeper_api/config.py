@@ -5,6 +5,10 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # avoid a circular import at runtime
+    from .client import SleeperClient
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
@@ -92,7 +96,7 @@ _season_cache_lock = threading.Lock()
 _season_cache: Dict[str, Any] = {}
 
 
-def _clock_estimate_season(now=None, prefer_previous_during_preseason=True):
+def _clock_estimate_season(now=None, prefer_previous_during_preseason=True) -> int:
     """
     Best-effort season estimate from the wall clock.
 
@@ -164,7 +168,10 @@ def _resolve_via_state_endpoint(client):
     return season, season_type
 
 
-def get_current_season(client, prefer_previous_during_preseason=True):
+def get_current_season(
+    client: "SleeperClient",
+    prefer_previous_during_preseason: bool = True,
+) -> int:
     """
     Resolve "the current season" from GET /state/nfl rather than the clock.
 

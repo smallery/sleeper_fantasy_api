@@ -411,3 +411,37 @@ class TestNoUnannotatedExports(unittest.TestCase):
         from sleeper_api.models.draft import DraftModel
         names = {n for n, _ in self._callables(DraftModel)}
         self.assertIn("from_json", names)
+
+    def test_public_module_functions_are_annotated(self):
+        """Module-level public functions are part of the surface too.
+
+        The class walk above cannot see them -- it queues classes from
+        `__all__` and inspects their methods -- so `config.get_current_season()`
+        shipped unannotated and resolved to `Any` downstream while the
+        class-based invariant passed. Third blind spot in the same test, hence
+        this second assertion rather than a third hand-written sweep.
+        """
+        import importlib
+        import inspect
+        import pkgutil
+
+        import sleeper_api
+
+        gaps = []
+        for mod_info in pkgutil.walk_packages(sleeper_api.__path__, "sleeper_api."):
+            module = importlib.import_module(mod_info.name)
+            for name, func in inspect.getmembers(module, inspect.isfunction):
+                if name.startswith("_"):
+                    continue
+                if func.__module__ != module.__name__:
+                    continue          # re-exported, checked where it is defined
+                sig = inspect.signature(func)
+                if sig.return_annotation is inspect.Signature.empty:
+                    gaps.append(f"{mod_info.name}.{name} (return)")
+                for pname, param in sig.parameters.items():
+                    if pname == "self":
+                        continue
+                    if param.annotation is inspect.Parameter.empty:
+                        gaps.append(f"{mod_info.name}.{name}({pname})")
+        self.assertEqual(sorted(gaps), [], f"unannotated public module functions: {sorted(gaps)}")
+

@@ -87,8 +87,11 @@ league_endpoint = LeagueEndpoint(client)
 
 # Get user. Raises UserNotFoundError if the username/user_id doesn't exist --
 # see "Error Handling" below.
+# convert_results=True is passed explicitly so a type checker picks the
+# model overload -- omit it and the result widens to `Dict | UserModel`,
+# because the default comes from the client and isn't knowable statically.
 try:
-    user = user_endpoint.get_user("your_username")
+    user = user_endpoint.get_user("your_username", convert_results=True)
 except UserNotFoundError:
     print("No such user")
 else:
@@ -97,7 +100,7 @@ else:
     # Get user's leagues for 2024. Pass no season to use the current one
     # instead (resolved from the live NFL state, not the calendar year --
     # see "Error Handling" below). Returns [] if the user has none.
-    leagues = user_endpoint.fetch_nfl_leagues(user.user_id, 2024)
+    leagues = user_endpoint.fetch_nfl_leagues(user.user_id, 2024, convert_results=True)
 
     if leagues:
         # Get league details. fetch_nfl_leagues returns LeagueModel objects,
